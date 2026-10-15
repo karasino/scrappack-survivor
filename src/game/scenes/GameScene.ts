@@ -1,9 +1,44 @@
 import Phaser from 'phaser';
 import { Inventory } from '../core/Inventory';
 import { Item } from '../core/Item';
+import type { ItemConfig } from '../core/Item';
 
 export class GameScene extends Phaser.Scene {
     private inventory!: Inventory;
+    private readonly visualItemsMap = new Map<string, {
+        itemModel: Item;
+        rect: Phaser.GameObjects.Rectangle;
+        text: Phaser.GameObjects.Text;
+    }>();
+
+    private readonly lootTable: Omit<ItemConfig, 'id'>[] = [
+        {
+            name: 'Слабая батарейка', type: 'battery', width: 1, height: 1,
+            color: 0xffd700, capacity: 5, maxCapacity: 5, voltageType: 'low'
+        },
+        {
+            name: 'Мощный аккумулятор', type: 'battery', width: 2, height: 1,
+            color: 0x00ff00, capacity: 12, maxCapacity: 12, voltageType: 'high'
+        },
+        {
+            name: 'Медный провод', type: 'wire', width: 2, height: 1,
+            color: 0xd27d2d
+        },
+        {
+            name: 'Повышающий трансформатор', type: 'transformer', width: 1, height: 1,
+            color: 0x4682b4, transformDirection: 'low-to-high'
+        },
+        {
+            name: 'Лазерный пистолет', type: 'weapon', width: 2, height: 1,
+            color: 0xff4500, requiredVoltage: 'high', baseDamage: 4, poweredDamage: 22,
+            energyCost: 2
+        },
+        {
+            name: 'Кустарный жилет', type: 'armor', width: 2, height: 2,
+            color: 0x008080, requiredVoltage: 'low', baseArmor: 2, poweredArmor: 8,
+            energyCost: 1
+        }
+    ];
     
     private cellSize = 50;
     private gridStartX = 200;
@@ -16,6 +51,7 @@ export class GameScene extends Phaser.Scene {
     init() {
         // Создаем сетку 6х6
         this.inventory = new Inventory(6, 6);
+        this.visualItemsMap.clear();
     }
 
     create() {
@@ -25,8 +61,12 @@ export class GameScene extends Phaser.Scene {
         const battery = new Item({
             id: 'scrap_battery_01',
             name: 'Ржавая батарейка',
+            type: 'battery',
             width: 2,
             height: 1,
+            capacity: 5,
+            maxCapacity: 5,
+            voltageType: 'low',
             color: 0x00ff00 // Зеленый Pip-Boy цвет
         });
 
@@ -37,6 +77,23 @@ export class GameScene extends Phaser.Scene {
             color: '#00ff00',
             fontFamily: 'monospace'
         });
+
+        this.add.text(550, 450, 'SCAVENGE SCRAP', {
+            fontSize: '20px',
+            color: '#00ff00',
+            fontFamily: 'monospace'
+        }).setInteractive().on('pointerdown', () => this.spawnRandomItem());
+    }
+
+    private spawnRandomItem(): void {
+        const config = Phaser.Utils.Array.GetRandom(this.lootTable);
+        const randomConfig: ItemConfig = {
+            ...config,
+            id: `item_${Phaser.Utils.String.UUID()}`
+        };
+        const itemModel = new Item(randomConfig);
+
+        this.createVisualItem(itemModel);
     }
 
     private drawGrid() {
@@ -52,9 +109,24 @@ export class GameScene extends Phaser.Scene {
         }
     }
 
+    private refreshVisuals(): void {
+        for (const { itemModel, rect } of this.visualItemsMap.values()) {
+            const isConsumer = itemModel.type === 'weapon' || itemModel.type === 'armor';
+            const isConductor = itemModel.type === 'wire' || itemModel.type === 'transformer';
+
+            rect.setFillStyle(isConductor && itemModel.isPowered ? 0x00ffff : itemModel.color);
+
+            if (isConsumer && itemModel.isPowered) {
+                rect.setStrokeStyle(3, 0x00ff00);
+            } else {
+                rect.setStrokeStyle();
+            }
+        }
+    }
+
     private createVisualItem(itemModel: Item) {
-        const startX = 550;
-        const startY = 200;
+        const startX = 550 + Phaser.Math.Between(-20, 20);
+        const startY = 250 + Phaser.Math.Between(-20, 20);
         const widthPx = itemModel.width * this.cellSize;
         const heightPx = itemModel.height * this.cellSize;
         
@@ -68,6 +140,7 @@ export class GameScene extends Phaser.Scene {
             fontFamily: 'monospace'
         });
 
+        this.visualItemsMap.set(itemModel.id, { itemModel, rect, text });
         this.input.setDraggable(rect);
 
         let isDragging = false;
@@ -75,7 +148,10 @@ export class GameScene extends Phaser.Scene {
         rect.on('dragstart', () => {
             isDragging = true;
             // Во время переноса предмет не занимает ячейки инвентаря.
-            this.inventory.removeItem(itemModel.id);
+            if (this.inventory.removeItem(itemModel.id)) {
+                this.inventory.updatePowerGrid();
+                this.refreshVisuals();
+            }
         });
 
         const rotateWhileDragging = (): void => {
@@ -91,6 +167,8 @@ export class GameScene extends Phaser.Scene {
         this.input.keyboard?.on('keydown-R', rotateWhileDragging);
         rect.once('destroy', () => {
             this.input.keyboard?.off('keydown-R', rotateWhileDragging);
+            this.visualItemsMap.delete(itemModel.id);
+            text.destroy();
         });
 
         rect.on('drag', (_pointer: Phaser.Input.Pointer, dragX: number, dragY: number) => {
@@ -121,8 +199,15 @@ export class GameScene extends Phaser.Scene {
             
             text.x = rect.x + 5;
             text.y = rect.y + 5;
+
+            this.inventory.updatePowerGrid();
+            this.refreshVisuals();
             
             console.log("Текущее состояние сетки:", this.inventory.grid);
+            console.log('Характеристики предмета:', { ...itemModel });
+            console.table(this.inventory.items.map(item => ({ ...item })));
         });
+
+        this.refreshVisuals();
     }
 }

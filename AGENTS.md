@@ -14,14 +14,16 @@
 ## Project Roadmap & Tasks
 
 ### Completed Tasks (Done)
-- **Base Inventory Grid System**: Built 2D grid matrix verification (`src/game/core/Inventory.ts` and `src/game/core/Item.ts`) with strict validation.
-- **Drag-and-Drop & Snapping**: Integrated Phaser 3 mouse events with core data models to snap items to cells.
+- **Base Inventory Grid System**: Built 2D grid matrix verification.
+- **Drag-and-Drop & Snapping**: Integrated Phaser 3 mouse events.
+- **Item Rotation (Key 'R')**: Implemented 90-degree item rotation.
+- **Loot Generator**: Added random item spawning with 5 distinct types.
+- **Wave-Based Power Grid (BFS)**: Implemented advanced electricity transmission via wires and transformers.
 
-### Current Task: Item Rotation (Key 'R')
-We are implementing a 90-degree item rotation when the user presses the 'R' key WHILE dragging an item.
-- `src/game/core/Item.ts`: Add a `rotate()` method that swaps `width` and `height`.
-- `src/game/scenes/GameScene.ts`: Listen to the 'R' key during drag. When pressed, rotate the data model, and update the Phaser Rectangle's width and height visually using `rect.setSize()` and updating `hitArea`.
+### Current Task: Visual Power Feedback (Neon Glow & Wire States)
+We need to update the visual representation of items in Phaser based on their electrical state after `updatePowerGrid()`.
+1. `src/game/scenes/GameScene.ts`: Create a way to track and refresh visual items. 
+2. When an item has `isPowered === true` (Weapons/Armor): Add a neon stroke/glow or change its border style to show it is active.
+3. When a wire or transformer is transmitting energy: Change its color dynamically (e.g., normal copper wire becomes bright glowing cyan/yellow when active).
+4. Implement a refresh method `refreshVisuals()` that runs right after `updatePowerGrid()` in the `dragend` event to update all items on the screen.
 
-### Upcoming Tasks (Backlog)
-- **Loot Generator**: Spawning random post-apocalyptic items (1x1 ammo, 2x2 scrap armor, 3x2 lasers) onto the ground area.
-- **Energy Grid (Core Hook)**: Implementing item power connections inside the grid.
