@@ -1,10 +1,11 @@
-import type { Item, VoltageType } from './Item';
+import type { DirectionVector, Item, VoltageType } from './Item';
 
 interface PowerWave {
     x: number;
     y: number;
     voltage: VoltageType;
     sourceBattery: Item;
+    entryPort: DirectionVector | null;
 }
 
 export class Inventory {
@@ -73,6 +74,19 @@ export class Inventory {
         const visitedByBattery = new Map<Item, Set<string>>();
         const activeTransformersByBattery = new Map<Item, Set<Item>>();
 
+        const sameDirection = (first: DirectionVector, second: DirectionVector): boolean => (
+            first.x === second.x && first.y === second.y
+        );
+
+        const oppositeDirection = (direction: DirectionVector): DirectionVector => ({
+            x: -direction.x,
+            y: -direction.y
+        });
+
+        const hasPort = (item: Item, direction: DirectionVector): boolean => (
+            item.connectionPorts.some(port => sameDirection(port, direction))
+        );
+
         const enqueue = (wave: PowerWave): void => {
             let visited = visitedByBattery.get(wave.sourceBattery);
             if (!visited) {
@@ -81,7 +95,8 @@ export class Inventory {
             }
 
             // Одна ячейка может проводить оба напряжения от разных батарей.
-            const key = `${wave.x},${wave.y},${wave.voltage}`;
+            const entry = wave.entryPort === null ? 'source' : `${wave.entryPort.x},${wave.entryPort.y}`;
+            const key = `${wave.x},${wave.y},${wave.voltage},${entry}`;
             if (!visited.has(key)) {
                 visited.add(key);
                 queue.push(wave);
@@ -93,7 +108,13 @@ export class Inventory {
                 const itemId = this.grid[y]?.[x];
                 const battery = itemId == null ? undefined : itemsById.get(itemId);
                 if (battery?.type === 'battery' && battery.capacity > 0) {
-                    enqueue({ x, y, voltage: battery.voltageType, sourceBattery: battery });
+                    enqueue({
+                        x,
+                        y,
+                        voltage: battery.voltageType,
+                        sourceBattery: battery,
+                        entryPort: null
+                    });
                 }
             }
         }
@@ -120,6 +141,31 @@ export class Inventory {
                     continue;
                 }
 
+                const currentItem = currentItemId == null ? undefined : itemsById.get(currentItemId);
+                const movement: DirectionVector = { x: dx, y: dy };
+
+                // Переходы между ячейками одного многоклеточного предмета не являются
+                // подключением через внешний порт. Сохраняем исходный входной порт.
+                if (neighborId === currentItemId) {
+                    enqueue({ ...wave, x, y });
+                    continue;
+                }
+
+                if (currentItem?.type === 'wire') {
+                    if (!hasPort(currentItem, movement)) {
+                        continue;
+                    }
+
+                    // Проводу нельзя выйти обратно через тот же порт, через который он вошёл.
+                    if (wave.entryPort !== null && sameDirection(movement, wave.entryPort)) {
+                        continue;
+                    }
+                } else if (currentItem?.type === 'transformer') {
+                    if (wave.entryPort !== null && !sameDirection(movement, currentItem.outputDir)) {
+                        continue;
+                    }
+                }
+
                 if (neighbor.type === 'weapon' || neighbor.type === 'armor') {
                     if (wave.voltage === neighbor.requiredVoltage) {
                         neighbor.isPowered = true;
@@ -128,6 +174,15 @@ export class Inventory {
                 }
 
                 if (neighbor.type !== 'wire' && neighbor.type !== 'transformer') {
+                    continue;
+                }
+
+                const entryPort = oppositeDirection(movement);
+                if (neighbor.type === 'wire') {
+                    if (!hasPort(neighbor, entryPort)) {
+                        continue;
+                    }
+                } else if (!sameDirection(entryPort, neighbor.inputDir)) {
                     continue;
                 }
 
@@ -157,7 +212,13 @@ export class Inventory {
                     }
                 }
 
-                enqueue({ x, y, voltage, sourceBattery: wave.sourceBattery });
+                enqueue({
+                    x,
+                    y,
+                    voltage,
+                    sourceBattery: wave.sourceBattery,
+                    entryPort
+                });
             }
         }
     }

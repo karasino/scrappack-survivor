@@ -1,29 +1,39 @@
-# Scrappack Survivor - Project Instructions
+# Scrappack Survivor - Project Master Specification
 
-## Tech Stack
-- Framework: Phaser 3 (Strictly Canvas/WebGL internal rendering, no HTML DOM for game objects)
+## 1. Tech Stack
+- Framework: Phaser 3 (Strictly Canvas/WebGL internal rendering)
 - Language: TypeScript (Strictly typed)
 - Build Tool: Vite
-- Deployment Target: Desktop app (via Tauri/Electron integration in the future)
+- Deployment Target: PC/Steam (Via Electron/Tauri in the future)
 
-## Architecture Rules
-1. **Data Model vs Visuals Split**: Keep a strict separation between core game logic (Data Models in `src/game/core/`) and rendering (Phaser Scenes in `src/game/scenes/`). Phaser scenes must only mirror the state of the data models.
-2. **Modular Code**: Code must be split logically into separate classes and files. Do not dump everything into single files.
-3. **Animations & UI**: Use Phaser's built-in Tweens system for animations. UI must be drawn using Phaser GameObjects (Containers, Rectangles, Text).
+## 2. Core Game Architecture (Current State)
+The game is an inventory-management roguelike where the backpack acts as an electrical circuit grid. There is a strict split between Data Models (`src/game/core/`) and Visuals (`src/game/ui/`, `src/game/scenes/`).
 
-## Project Roadmap & Tasks
+### Core Data Models (`src/game/core/`)
+1. **`Inventory.ts`**:
+   - Manages a 2D matrix grid `(string | null)[][]` (Default: 6x6).
+   - Contains: `canPlaceItem()`, `placeItem()`, `removeItem(itemId)`.
+   - **`updatePowerGrid()` (BFS Algorithm)**: Runs a wave-based Breadth-First Search from active batteries. Propagates power through wires and transformers based on strict directional vectors. Sets `item.isPowered = true` if the matching voltage reaches weapons or armor.
 
-### Completed Tasks (Done)
-- **Base Inventory Grid System**: Built 2D grid matrix verification.
-- **Drag-and-Drop & Snapping**: Integrated Phaser 3 mouse events.
-- **Item Rotation (Key 'R')**: Implemented 90-degree item rotation.
-- **Loot Generator**: Added random item spawning with 5 distinct types.
-- **Wave-Based Power Grid (BFS)**: Implemented advanced electricity transmission via wires and transformers.
+2. **`Item.ts`**:
+   - Defines `ItemConfig` and `Item` class with structural fields: `id`, `name`, `type`, `width`, `height`, `color`, `gridX`, `gridY`, `isPowered`.
+   - `type` supports: `'weapon' | 'armor' | 'battery' | 'wire' | 'transformer'`.
+   - **Scalable Stats**: Weapons (`baseDamage`, `poweredDamage`), Armors (`baseArmor`, `poweredArmor`).
+   - **Grid Specs**: Batteries (`capacity`, `maxCapacity`, `voltageType: 'low' | 'high'`), Wires (`connectionPorts` vectors), Transformers (`inputDir`, `outputDir`, `transformDirection`).
+   - Contains **`rotate()`**: Rotates item shapes and flips direction vectors 90 degrees clockwise `(x, y) -> (-y, x)` on Key 'R'.
 
-### Current Task: Visual Power Feedback (Neon Glow & Wire States)
-We need to update the visual representation of items in Phaser based on their electrical state after `updatePowerGrid()`.
-1. `src/game/scenes/GameScene.ts`: Create a way to track and refresh visual items. 
-2. When an item has `isPowered === true` (Weapons/Armor): Add a neon stroke/glow or change its border style to show it is active.
-3. When a wire or transformer is transmitting energy: Change its color dynamically (e.g., normal copper wire becomes bright glowing cyan/yellow when active).
-4. Implement a refresh method `refreshVisuals()` that runs right after `updatePowerGrid()` in the `dragend` event to update all items on the screen.
+3. **`LootTable.ts`**:
+   - Standalone constant file holding pre-defined base configs for 6 starter items (Weak Battery, Heavy Battery, Copper Wire, Step-up Transformer, Laser Pistol, Flak Jacket).
 
+### Visual & UI Layer
+1. **`src/game/ui/ItemVisual.ts`**:
+   - Dedicated Phaser GameObject wrapper for items.
+   - Encapsulates Phaser Rectangle, labels, drag events (`dragstart`, `drag`, `dragend`), Key 'R' rotation tracking, and neon color shift via `refreshVisuals()`.
+2. **`src/game/scenes/GameScene.ts`**:
+   - Orchestrates the game loop, draws the 6x6 Pip-Boy style green grid, renders the interactive "SCAVENGE SCRAP" button, and handles random item spawning with offset positioning.
+
+## 3. Implemented Features (Changelog)
+- Strict 2D grid placement with bounding check.
+- Interactive drag-and-drop mechanics with snapping.
+- Directional physics: Transformers require exact input-to-output path alignment. Wires require matching connection ports. Parallel connection bug fixed.
+- Complete visual power network mapping (wires and transformers glow cyan/yellow under power, weapons/armors outline in neon green).

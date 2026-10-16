@@ -2,6 +2,11 @@ export type ItemType = 'weapon' | 'armor' | 'battery' | 'wire' | 'transformer';
 export type VoltageType = 'low' | 'high';
 export type TransformDirection = 'low-to-high' | 'high-to-low' | null;
 
+export interface DirectionVector {
+    x: number;
+    y: number;
+}
+
 export interface ItemConfig {
     id: string;
     name: string;
@@ -21,6 +26,9 @@ export interface ItemConfig {
     energyCost?: number;
     energyCostMultiplier?: number;
     isEnergySource?: boolean;
+    inputDir?: DirectionVector;
+    outputDir?: DirectionVector;
+    connectionPorts?: DirectionVector[];
 }
 
 export class Item {
@@ -43,6 +51,9 @@ export class Item {
     public energyCostMultiplier: number;
     public isEnergySource: boolean = false;
     public isPowered: boolean = false;
+    public inputDir: DirectionVector;
+    public outputDir: DirectionVector;
+    public connectionPorts: DirectionVector[];
 
     constructor(config: ItemConfig) {
         this.id = config.id;
@@ -63,9 +74,28 @@ export class Item {
         this.energyCost = config.energyCost ?? 0;
         this.energyCostMultiplier = config.energyCostMultiplier ?? 1;
         this.isEnergySource = config.isEnergySource ?? (this.type === 'battery');
+        this.inputDir = { ...(config.inputDir ?? { x: -1, y: 0 }) };
+        this.outputDir = { ...(config.outputDir ?? { x: 1, y: 0 }) };
+        this.connectionPorts = (config.connectionPorts ?? (
+            this.type === 'wire' ? [{ x: -1, y: 0 }, { x: 1, y: 0 }] : []
+        )).map(port => ({ ...port }));
     }
 
     public rotate(): void {
         [this.width, this.height] = [this.height, this.width];
+
+        const rotateDirection = (direction: DirectionVector): DirectionVector => ({
+            x: direction.y === 0 ? 0 : -direction.y,
+            y: direction.x === 0 ? 0 : direction.x
+        });
+
+        if (this.type === 'transformer') {
+            this.inputDir = rotateDirection(this.inputDir);
+            this.outputDir = rotateDirection(this.outputDir);
+        }
+
+        if (this.type === 'wire') {
+            this.connectionPorts = this.connectionPorts.map(rotateDirection);
+        }
     }
 }
