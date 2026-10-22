@@ -35,6 +35,8 @@ export class GameScene extends Phaser.Scene {
             height: 1,
             capacity: 5,
             maxCapacity: 5,
+            charge: 5,
+            maxCharge: 5,
             voltageType: 'low',
             color: 0x00ff00
         });

@@ -1,4 +1,4 @@
-import type { DirectionVector, Item, VoltageType } from './Item';
+import type { ConnectedBattery, DirectionVector, Item, VoltageType } from './Item';
 
 interface PowerWave {
     x: number;
@@ -6,6 +6,7 @@ interface PowerWave {
     voltage: VoltageType;
     sourceBattery: Item;
     entryPort: DirectionVector | null;
+    energyCostMultiplier: number;
 }
 
 export class Inventory {
@@ -59,19 +60,22 @@ export class Inventory {
         }
 
         this.items.push(item);
+        item.gridX = x;
+        item.gridY = y;
         return true;
     }
 
     public updatePowerGrid(): void {
         const itemsById = new Map<string, Item>();
         for (const item of this.items) {
+            item.connectedBatteries = [];
             item.isPowered = false;
             item.energyCostMultiplier = 1.0;
             itemsById.set(item.id, item);
         }
 
         const queue: PowerWave[] = [];
-        const visitedByBattery = new Map<Item, Set<string>>();
+        const visitedByBattery = new Map<Item, Map<string, number>>();
         const activeTransformersByBattery = new Map<Item, Set<Item>>();
 
         const sameDirection = (first: DirectionVector, second: DirectionVector): boolean => (
@@ -90,15 +94,16 @@ export class Inventory {
         const enqueue = (wave: PowerWave): void => {
             let visited = visitedByBattery.get(wave.sourceBattery);
             if (!visited) {
-                visited = new Set<string>();
+                visited = new Map<string, number>();
                 visitedByBattery.set(wave.sourceBattery, visited);
             }
 
             // Одна ячейка может проводить оба напряжения от разных батарей.
             const entry = wave.entryPort === null ? 'source' : `${wave.entryPort.x},${wave.entryPort.y}`;
             const key = `${wave.x},${wave.y},${wave.voltage},${entry}`;
-            if (!visited.has(key)) {
-                visited.add(key);
+            const previousMultiplier = visited.get(key);
+            if (previousMultiplier === undefined || wave.energyCostMultiplier < previousMultiplier) {
+                visited.set(key, wave.energyCostMultiplier);
                 queue.push(wave);
             }
         };
@@ -107,13 +112,14 @@ export class Inventory {
             for (let x = 0; x < this.width; x++) {
                 const itemId = this.grid[y]?.[x];
                 const battery = itemId == null ? undefined : itemsById.get(itemId);
-                if (battery?.type === 'battery' && battery.capacity > 0) {
+                if (battery?.type === 'battery' && battery.charge > 0) {
                     enqueue({
                         x,
                         y,
                         voltage: battery.voltageType,
                         sourceBattery: battery,
-                        entryPort: null
+                        entryPort: null,
+                        energyCostMultiplier: 1.0
                     });
                 }
             }
@@ -168,6 +174,21 @@ export class Inventory {
 
                 if (neighbor.type === 'weapon' || neighbor.type === 'armor') {
                     if (wave.voltage === neighbor.requiredVoltage) {
+                        const connection: ConnectedBattery = {
+                            batteryId: wave.sourceBattery.id,
+                            costMultiplier: wave.energyCostMultiplier
+                        };
+                        const existingConnection = neighbor.connectedBatteries.find(
+                            battery => battery.batteryId === connection.batteryId
+                        );
+                        if (existingConnection) {
+                            existingConnection.costMultiplier = Math.min(
+                                existingConnection.costMultiplier,
+                                connection.costMultiplier
+                            );
+                        } else {
+                            neighbor.connectedBatteries.push(connection);
+                        }
                         neighbor.isPowered = true;
                     }
                     continue;
@@ -189,12 +210,17 @@ export class Inventory {
                 neighbor.isPowered = true;
 
                 let voltage = wave.voltage;
+                let energyCostMultiplier = wave.energyCostMultiplier;
                 // Внутри многоклеточного трансформатора напряжение повторно не меняется.
                 if (neighbor.type === 'transformer' && neighborId !== currentItemId) {
                     if (neighbor.transformDirection === 'low-to-high' && voltage === 'low') {
                         voltage = 'high';
                     } else if (neighbor.transformDirection === 'high-to-low' && voltage === 'high') {
                         voltage = 'low';
+                    }
+
+                    if (voltage !== wave.voltage) {
+                        energyCostMultiplier += 1.0;
                     }
                 }
 
@@ -217,7 +243,8 @@ export class Inventory {
                     y,
                     voltage,
                     sourceBattery: wave.sourceBattery,
-                    entryPort
+                    entryPort,
+                    energyCostMultiplier
                 });
             }
         }
@@ -239,6 +266,9 @@ export class Inventory {
 
         this.items[itemIndex].isPowered = false;
         this.items[itemIndex].energyCostMultiplier = 1.0;
+        this.items[itemIndex].connectedBatteries = [];
+        this.items[itemIndex].gridX = -1;
+        this.items[itemIndex].gridY = -1;
         this.items.splice(itemIndex, 1);
         return true;
     }

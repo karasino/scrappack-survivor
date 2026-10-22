@@ -3,11 +3,11 @@ import type { ItemConfig } from './Item';
 export const LootTable: Omit<ItemConfig, 'id'>[] = [
     {
         name: 'Слабая батарейка', type: 'battery', width: 1, height: 1,
-        color: 0xffd700, capacity: 5, maxCapacity: 5, voltageType: 'low'
+        color: 0xffd700, capacity: 5, maxCapacity: 5, charge: 5, maxCharge: 5, voltageType: 'low'
     },
     {
         name: 'Мощный аккумулятор', type: 'battery', width: 2, height: 1,
-        color: 0x00ff00, capacity: 12, maxCapacity: 12, voltageType: 'high'
+        color: 0x00ff00, capacity: 12, maxCapacity: 12, charge: 12, maxCharge: 12, voltageType: 'high'
     },
     {
         name: 'Медный провод', type: 'wire', width: 2, height: 1,

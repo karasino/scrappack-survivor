@@ -7,12 +7,19 @@ export interface DirectionVector {
     y: number;
 }
 
+export interface ConnectedBattery {
+    batteryId: string;
+    costMultiplier: number;
+}
+
 export interface ItemConfig {
     id: string;
     name: string;
     width: number;
     height: number;
     color: number;
+    gridX?: number;
+    gridY?: number;
     type?: ItemType;
     baseDamage?: number;
     poweredDamage?: number;
@@ -20,6 +27,8 @@ export interface ItemConfig {
     poweredArmor?: number;
     capacity?: number;
     maxCapacity?: number;
+    charge?: number;
+    maxCharge?: number;
     voltageType?: VoltageType;
     transformDirection?: TransformDirection;
     requiredVoltage?: VoltageType;
@@ -37,6 +46,8 @@ export class Item {
     public width: number;
     public height: number;
     public color: number;
+    public gridX: number;
+    public gridY: number;
     public type: ItemType;
     public baseDamage: number;
     public poweredDamage: number;
@@ -44,6 +55,8 @@ export class Item {
     public poweredArmor: number;
     public capacity: number;
     public maxCapacity: number;
+    public charge: number;
+    public maxCharge: number;
     public voltageType: VoltageType;
     public transformDirection: TransformDirection;
     public requiredVoltage: VoltageType;
@@ -51,6 +64,8 @@ export class Item {
     public energyCostMultiplier: number;
     public isEnergySource: boolean = false;
     public isPowered: boolean = false;
+    public connectedBatteries: ConnectedBattery[] = [];
+    public isSelectedForTurn: boolean = false;
     public inputDir: DirectionVector;
     public outputDir: DirectionVector;
     public connectionPorts: DirectionVector[];
@@ -61,6 +76,8 @@ export class Item {
         this.width = config.width;
         this.height = config.height;
         this.color = config.color;
+        this.gridX = config.gridX ?? -1;
+        this.gridY = config.gridY ?? -1;
         this.type = config.type ?? 'weapon';
         this.baseDamage = config.baseDamage ?? 0;
         this.poweredDamage = config.poweredDamage ?? 0;
@@ -68,6 +85,8 @@ export class Item {
         this.poweredArmor = config.poweredArmor ?? 0;
         this.capacity = config.capacity ?? 0;
         this.maxCapacity = config.maxCapacity ?? 0;
+        this.charge = config.charge ?? this.capacity;
+        this.maxCharge = config.maxCharge ?? config.maxCapacity ?? this.charge;
         this.voltageType = config.voltageType ?? 'low';
         this.transformDirection = config.transformDirection ?? null;
         this.requiredVoltage = config.requiredVoltage ?? 'low';
