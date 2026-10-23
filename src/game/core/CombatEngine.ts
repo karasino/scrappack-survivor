@@ -1,5 +1,6 @@
 import type { Inventory } from './Inventory';
 import type { Item } from './Item';
+import { prepareEnergyPlan } from './EnergyPlan';
 
 export interface CombatTurnLog {
     damageDealt: number;
@@ -42,22 +43,24 @@ export class CombatEngine {
             ? null
             : this.findItem(selectedArmorId, 'armor');
 
-        const isWeaponPowered = weapon.isPowered;
-        const rawDamage = isWeaponPowered ? weapon.poweredDamage : weapon.baseDamage;
+        const plan = prepareEnergyPlan(this.inventory, weapon, armor);
+        const rawDamage = plan.weaponPowered ? weapon.poweredDamage : weapon.baseDamage;
         const damageDealt = Math.min(this.enemyHp, Math.max(0, rawDamage));
         this.enemyHp = Math.max(0, this.enemyHp - damageDealt);
 
-        if (isWeaponPowered) {
-            this.drainWeaponEnergy(weapon);
-        }
-
         const shieldGenerated = armor === null
             ? 0
-            : Math.max(0, armor.isPowered ? armor.poweredArmor : armor.baseArmor);
+            : Math.max(0, plan.armorPowered ? armor.poweredArmor : armor.baseArmor);
         const incomingDamage = Math.max(0, this.enemyBaseDamage - shieldGenerated);
         const damageTaken = Math.min(this.playerHp, incomingDamage);
         this.playerHp = Math.max(0, this.playerHp - damageTaken);
 
+        for (const battery of this.inventory.items) {
+            const cost = plan.batteryCosts.get(battery.id);
+            if (battery.type === 'battery' && cost !== undefined) {
+                battery.charge -= cost;
+            }
+        }
         this.removeDepletedBatteries();
 
         return {
@@ -78,26 +81,6 @@ export class CombatEngine {
         }
 
         return item;
-    }
-
-    private drainWeaponEnergy(weapon: Item): void {
-        const totalCost = Math.max(0, weapon.energyCost);
-        if (totalCost === 0 || weapon.connectedBatteries.length === 0) {
-            return;
-        }
-
-        const costPerBattery = totalCost / weapon.connectedBatteries.length;
-        for (const batteryLink of weapon.connectedBatteries) {
-            const battery = this.inventory.items.find(item => (
-                item.id === batteryLink.batteryId && item.type === 'battery'
-            ));
-            if (!battery) {
-                continue;
-            }
-
-            const costMultiplier = Math.max(0, batteryLink.costMultiplier);
-            battery.charge -= costPerBattery * costMultiplier;
-        }
     }
 
     private removeDepletedBatteries(): void {

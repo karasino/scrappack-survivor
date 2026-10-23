@@ -1,9 +1,12 @@
 import Phaser from 'phaser';
-import type { Item } from '../core/Item';
+import type { DirectionVector, Item } from '../core/Item';
 
 export interface ItemVisualCallbacks {
     isInteractionAllowed?: () => boolean;
+    isPoweredEffectAvailable?: (item: Item) => boolean;
     onClick?: (visual: ItemVisual) => void;
+    onHover?: (visual: ItemVisual, pointer: Phaser.Input.Pointer) => void;
+    onHoverEnd?: (visual: ItemVisual) => void;
     onDragStart?: (visual: ItemVisual) => void;
     onDragEnd?: (visual: ItemVisual, cancelled: boolean) => void;
     onDestroy?: (visual: ItemVisual) => void;
@@ -26,6 +29,7 @@ export class ItemVisual {
     public readonly text: Phaser.GameObjects.Text;
 
     private readonly selectionGraphics: Phaser.GameObjects.Graphics;
+    private readonly connectionGraphics: Phaser.GameObjects.Graphics;
     private readonly startX: number;
     private readonly startY: number;
     private readonly scene: Phaser.Scene;
@@ -46,12 +50,16 @@ export class ItemVisual {
             this.startX, this.startY, itemModel.width * cellSize, itemModel.height * cellSize, itemModel.color
         ).setOrigin(0).setInteractive({ draggable: true });
         this.selectionGraphics = scene.add.graphics();
+        this.connectionGraphics = scene.add.graphics().setDepth(35);
         this.text = scene.add.text(this.startX + 5, this.startY + 5, itemModel.name, {
             fontSize: '10px', color: '#000000', fontFamily: 'monospace'
         });
         scene.input.setDraggable(this.rect);
         this.updateSize();
         this.updateDepth();
+
+        this.rect.on('pointerover', (pointer: Phaser.Input.Pointer) => callbacks.onHover?.(this, pointer));
+        this.rect.on('pointerout', () => callbacks.onHoverEnd?.(this));
 
         this.rect.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
             if (!pointer.leftButtonDown() || this.gesture || !this.interactionAllowed()) {
@@ -109,6 +117,7 @@ export class ItemVisual {
             keyboard?.off('keydown-R', this.rotateWhileDragging, this);
             this.gesture = null;
             this.selectionGraphics.destroy();
+            this.connectionGraphics.destroy();
             this.text.destroy();
             callbacks.onDestroy?.(this);
         });
@@ -180,7 +189,11 @@ export class ItemVisual {
 
     public setInteractionEnabled(enabled: boolean): void {
         if (this.rect.input) {
-            this.rect.input.enabled = enabled;
+            // Keep hover hit testing available even when gameplay actions are locked.
+            this.rect.input.enabled = true;
+            if (this.rect.input.draggable !== enabled) {
+                this.scene.input.setDraggable(this.rect, enabled);
+            }
         }
     }
 
@@ -188,6 +201,7 @@ export class ItemVisual {
         this.rect.setPosition(x, y);
         this.text.setPosition(x + 5, y + 5);
         this.refreshSelection();
+        this.refreshConnections();
     }
 
     public resetPosition(): void {
@@ -206,17 +220,55 @@ export class ItemVisual {
         }
     }
 
+    private refreshConnections(): void {
+        const graphics = this.connectionGraphics;
+        graphics.clear();
+        if (!this.isDragging) {
+            return;
+        }
+        graphics.lineStyle(2, 0xd8ff8a);
+        const drawArrow = (side: DirectionVector, inward: boolean, bidirectional: boolean): void => {
+            const { x, y, width, height } = this.rect;
+            const cx = x + width / 2 + side.x * (width / 2 + 6);
+            const cy = y + height / 2 + side.y * (height / 2 + 6);
+            const dx = inward ? -side.x : side.x;
+            const dy = inward ? -side.y : side.y;
+            graphics.lineBetween(cx - dx * 8, cy - dy * 8, cx + dx * 8, cy + dy * 8);
+            const head = (direction: number): void => {
+                const tipX = cx + dx * 8 * direction;
+                const tipY = cy + dy * 8 * direction;
+                const baseX = tipX - dx * 8 * direction;
+                const baseY = tipY - dy * 8 * direction;
+                graphics.beginPath().moveTo(baseX - dy * 4, baseY + dx * 4)
+                    .lineTo(tipX, tipY).lineTo(baseX + dy * 4, baseY - dx * 4).strokePath();
+            };
+            head(1);
+            if (bidirectional) {
+                head(-1);
+            }
+        };
+        if (this.itemModel.type === 'wire') {
+            for (const port of this.itemModel.connectionPorts) {
+                drawArrow(port, false, true);
+            }
+        } else if (this.itemModel.type === 'transformer') {
+            drawArrow(this.itemModel.inputDir, true, false);
+            drawArrow(this.itemModel.outputDir, false, false);
+        }
+    }
+
     public refresh(): void {
         const isConsumer = this.itemModel.type === 'weapon' || this.itemModel.type === 'armor';
         const isConductor = this.itemModel.type === 'wire' || this.itemModel.type === 'transformer';
         const fillAlpha = this.isDragging ? 0.6 : this.itemModel.isSelectedForTurn ? 1 : 0.85;
         this.rect.setFillStyle(isConductor && this.itemModel.isPowered ? 0x00ffff : this.itemModel.color, fillAlpha);
-        if (isConsumer && this.itemModel.isPowered) {
+        if (isConsumer && this.callbacks.isPoweredEffectAvailable?.(this.itemModel)) {
             this.rect.setStrokeStyle(3, 0x00ff00);
         } else {
             this.rect.setStrokeStyle();
         }
         this.refreshSelection();
+        this.refreshConnections();
     }
 
     public destroy(): void {

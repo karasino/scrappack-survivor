@@ -7,6 +7,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
+import { runTask4Checks } from './task4-checks.mjs';
+import { runEnergyPlanChecks } from './energy-plan-checks.mjs';
+import { runPowerReasonChecks } from './power-reason-checks.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'scrappack-ui-'));
 const origin = 'http://127.0.0.1:4175';
@@ -17,11 +20,11 @@ let cdp;
 const pending = new Map();
 const browserErrors = [];
 const timeout = setTimeout(() => {
-    console.error('Browser checks exceeded 90 seconds.');
+    console.error('Browser checks exceeded 120 seconds.');
     server.kill();
     chrome?.kill();
     process.exitCode = 1;
-}, 90_000);
+}, 120_000);
 
 try {
     await new Promise((resolve, reject) => {
@@ -73,6 +76,7 @@ try {
         };
         await send('Runtime.enable');
         await send('Page.enable');
+        await send('Emulation.setFocusEmulationEnabled', { enabled: true });
         await send('Emulation.setDeviceMetricsOverride', { width: 820, height: 640, deviceScaleFactor: 1, mobile: false });
         if (renderer === 'canvas') {
             // Force Phaser.AUTO down its Canvas path without changing the game's config.
@@ -204,6 +208,7 @@ try {
         await evaluate('s.game.events.emit("blur")');
         await mouse('mouseReleased',...lootPoint);
         await check('!!s.activeDrag',false,'blur cancels drag');
+        await evaluate('s.game.events.emit("focus")');
         await restart();
 
         await evaluate(`seed([{type:'weapon',id:'a',x:0,y:0}])`);
@@ -238,7 +243,7 @@ try {
         await click(663,544);
         await check(`({enemy:s.combatEngine.enemyHp,hp:s.combatEngine.playerHp,shield:s.shieldText.text,
             high:s.inventory.items.find(i=>i.id==='high').charge,low:s.inventory.items.find(i=>i.id==='low').charge})`,
-        {enemy:28,hp:96,shield:'SHIELD LAST: 8',high:10,low:5},'powered damage and weapon-only energy drain');
+        {enemy:28,hp:96,shield:'SHIELD LAST: 8',high:10,low:4},'powered damage and weapon plus armor energy drain');
         await evaluate(`s.inventory.items.find(i=>i.id==='high').charge=2; s.nextAllowedTurnAt=0; s.updateCombatUI();
             globalThis.bfsCalls=0;const original=s.inventory.updatePowerGrid.bind(s.inventory);
             s.inventory.updatePowerGrid=()=>{bfsCalls++;original()}`);
@@ -255,9 +260,9 @@ try {
             await click(663,544);
             await check('s.battleState',outcome,'terminal outcome');
             await check(`({ready:s.canEndTurn(),scavenge:s.scavengeButton.input.enabled,
-                item:s.visualItemsMap.get('a').rect.input.enabled,status:s.statusText.text,
+                hover:s.visualItemsMap.get('a').rect.input.enabled,drag:s.visualItemsMap.get('a').rect.input.draggable,status:s.statusText.text,
                 enemyVisible:s.enemyHpFill.visible,playerVisible:s.playerHpFill.visible})`,
-            {ready:false,scavenge:false,item:false,status:outcome.toUpperCase(),enemyVisible:enemyHp!==4,playerVisible:playerHp!==12},'terminal controls and zero bars');
+            {ready:false,scavenge:false,hover:true,drag:false,status:outcome.toUpperCase(),enemyVisible:enemyHp!==4,playerVisible:playerHp!==12},'terminal controls and zero bars');
             const snapshot=await read('[s.combatEngine.enemyHp,s.combatEngine.playerHp,s.visualItemsMap.size,s.inventory.items[0].isSelectedForTurn]');
             await delay(280);
             await click(663,544);
@@ -269,6 +274,16 @@ try {
             await send('Input.dispatchKeyEvent',{type:'keyUp',key:'r',code:'KeyR',windowsVirtualKeyCode:82});
             await mouse('mouseReleased',260,175);
             await check('[s.combatEngine.enemyHp,s.combatEngine.playerHp,s.visualItemsMap.size,s.inventory.items[0].isSelectedForTurn]',snapshot,'terminal state frozen');
+            await mouse('mouseMoved',225,175);
+            for(let i=0;i<100 && !(await read('s.itemTooltip.visible'));i++) await delay(20);
+            if (!(await read('s.itemTooltip.visible'))) console.error(await read(`({
+                focused:s.tooltipFocused,inside:s.pointerInside,hasFocus:s.game.hasFocus,
+                drag:!!s.activeDrag,processing:s.isProcessingTurn,hovered:s.hoveredItem?.itemModel.id,
+                timer:s.tooltipTimer?.elapsed,now:s.time.now,pointer:[s.input.activePointer.x,s.input.activePointer.y],
+                under:s.itemUnderPointer()?.itemModel.id,input:s.visualItemsMap.get('a').rect.input.enabled
+            })`));
+            await check('s.itemTooltip.visible',true,'tooltips viewable after terminal outcome');
+            await check("[s.visualItemsMap.get('a').itemModel.width,s.visualItemsMap.get('a').itemModel.height]",[2,1],'terminal rotation remains locked');
             if(enemyHp===4&&playerHp===12) await check('s.messages.at(-1).includes("both died")',true,'simultaneous deaths logged');
             await restart();
         }
@@ -293,6 +308,10 @@ try {
         await evaluate(`s.combatEngine = new (s.combatEngine.constructor)(s.inventory,0,0,12,'Rad-Scorpion');s.updateCombatUI()`);
         await check('[s.playerHpFill.visible,s.enemyHpFill.visible]',[false,false],'zero maximum health');
         await restart();
+
+        await runTask4Checks({ evaluate,read,check,mouse,click,restart,send,renderer });
+        await runEnergyPlanChecks({ evaluate,read,check,mouse,click,restart,renderer });
+        await runPowerReasonChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
 
         const listeners = await read(`({children:s.children.length,up:s.input.listenerCount('pointerup'),
             move:s.input.listenerCount('pointermove'),rotate:s.input.keyboard.listenerCount('keydown-R'),

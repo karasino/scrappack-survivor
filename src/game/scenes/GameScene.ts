@@ -5,6 +5,9 @@ import { LootTable } from '../core/LootTable';
 import { ItemVisual } from '../ui/ItemVisual';
 import { CombatEngine } from '../core/CombatEngine';
 import type { CombatTurnLog } from '../core/CombatEngine';
+import { ItemTooltip } from '../ui/ItemTooltip';
+import { buildItemTooltipContent } from '../ui/ItemTooltipContent';
+import { canUsePoweredEffect, previewPoweredEffect } from '../core/EnergyPlan';
 
 type BattleState = 'active' | 'victory' | 'defeat';
 
@@ -24,6 +27,11 @@ export class GameScene extends Phaser.Scene {
     private nextAllowedTurnAt = 0;
     private lastTurnLog: CombatTurnLog | null = null;
     private selectionError: string | null = null;
+    private itemTooltip!: ItemTooltip;
+    private hoveredItem: ItemVisual | null = null;
+    private tooltipTimer: Phaser.Time.TimerEvent | null = null;
+    private pointerInside = false;
+    private tooltipFocused = true;
 
     private playerHpFill!: Phaser.GameObjects.Rectangle;
     private enemyHpFill!: Phaser.GameObjects.Rectangle;
@@ -66,21 +74,29 @@ export class GameScene extends Phaser.Scene {
         this.selectionError = null;
         this.buttonHovered = false;
         this.buttonPointerId = null;
+        this.hoveredItem = null;
+        this.tooltipTimer = null;
+        this.pointerInside = false;
+        this.tooltipFocused = this.game.loop.inFocus;
     }
 
     create(): void {
         this.combatEngine = new CombatEngine(this.inventory, 100, 50, 12, 'Rad-Scorpion');
+        this.itemTooltip = new ItemTooltip(this);
         this.input.dragDistanceThreshold = 6;
         this.input.dragTimeThreshold = 0;
         this.events.once(Phaser.Scenes.Events.SHUTDOWN, this.handleShutdown, this);
         this.input.on('pointerup', this.releaseButton, this);
-        this.input.on('pointerupoutside', this.cancelGestures, this);
-        this.input.on('gameout', this.cancelGestures, this);
-        this.game.events.on(Phaser.Core.Events.BLUR, this.cancelGestures, this);
+        this.input.on('pointerupoutside', this.handlePointerOutside, this);
+        this.input.on('gameout', this.handlePointerOutside, this);
+        this.input.on('gameover', this.handlePointerEnter, this);
+        this.input.on('pointermove', this.handlePointerMove, this);
+        this.game.events.on(Phaser.Core.Events.BLUR, this.handleBlur, this);
+        this.game.events.on(Phaser.Core.Events.FOCUS, this.handleFocus, this);
 
         this.drawGrid();
         const battery = new Item({
-            id: 'scrap_battery_01', name: 'Ржавая батарейка', type: 'battery',
+            id: 'scrap_battery_01', name: 'Rusty Battery', type: 'battery',
             width: 2, height: 1, capacity: 5, maxCapacity: 5,
             charge: 5, maxCharge: 5, voltageType: 'low', color: 0x00ff00
         });
@@ -95,13 +111,27 @@ export class GameScene extends Phaser.Scene {
             this.nextAllowedTurnAt = 0;
             this.updateCombatUI();
         }
+        this.refreshConsumerPowerVisuals();
+        this.updateTooltipHover();
+    }
+
+    private refreshConsumerPowerVisuals(): void {
+        for (const visual of this.visualItemsMap.values()) {
+            if (visual.itemModel.type === 'weapon' || visual.itemModel.type === 'armor') {
+                visual.refresh();
+            }
+        }
     }
 
     private handleShutdown(): void {
         this.input.off('pointerup', this.releaseButton, this);
-        this.input.off('pointerupoutside', this.cancelGestures, this);
-        this.input.off('gameout', this.cancelGestures, this);
-        this.game.events.off(Phaser.Core.Events.BLUR, this.cancelGestures, this);
+        this.input.off('pointerupoutside', this.handlePointerOutside, this);
+        this.input.off('gameout', this.handlePointerOutside, this);
+        this.input.off('gameover', this.handlePointerEnter, this);
+        this.input.off('pointermove', this.handlePointerMove, this);
+        this.game.events.off(Phaser.Core.Events.BLUR, this.handleBlur, this);
+        this.game.events.off(Phaser.Core.Events.FOCUS, this.handleFocus, this);
+        this.hideTooltip();
         for (const visual of this.visualItemsMap.values()) {
             visual.destroy();
         }
@@ -110,6 +140,80 @@ export class GameScene extends Phaser.Scene {
         this.buttonPointerId = null;
         this.logText.clearMask(true);
         this.logMaskGraphics.destroy();
+        this.itemTooltip.destroy();
+    }
+
+    private hideTooltip(): void {
+        this.tooltipTimer?.remove(false);
+        this.tooltipTimer = null;
+        this.hoveredItem = null;
+        this.itemTooltip?.hide();
+    }
+
+    private handlePointerMove(pointer: Phaser.Input.Pointer): void {
+        this.pointerInside = pointer.x >= 0 && pointer.y >= 0
+            && pointer.x < this.scale.width && pointer.y < this.scale.height;
+    }
+
+    private handlePointerEnter(): void {
+        this.pointerInside = true;
+    }
+
+    private handlePointerOutside(): void {
+        this.pointerInside = false;
+        this.hideTooltip();
+        this.cancelGestures();
+    }
+
+    private handleBlur(): void {
+        this.tooltipFocused = false;
+        this.hideTooltip();
+        this.cancelGestures();
+    }
+
+    private handleFocus(): void {
+        this.tooltipFocused = true;
+        this.pointerInside = this.input.manager.isOver;
+    }
+
+    private itemUnderPointer(): ItemVisual | null {
+        const pointer = this.input.activePointer;
+        const hits = this.input.sortGameObjects(this.input.hitTestPointer(pointer), pointer);
+        const top = hits[0];
+        for (const visual of this.visualItemsMap.values()) {
+            if (visual.rect === top) {
+                return visual;
+            }
+        }
+        return null;
+    }
+
+    private updateTooltipHover(): void {
+        if (!this.pointerInside || !this.tooltipFocused || this.isProcessingTurn || this.activeDrag) {
+            this.hideTooltip();
+            return;
+        }
+        const visual = this.itemUnderPointer();
+        if (visual !== this.hoveredItem) {
+            this.hideTooltip();
+            if (visual) {
+                this.hoveredItem = visual;
+                this.tooltipTimer = this.time.delayedCall(300, () => {
+                    this.tooltipTimer = null;
+                    if (this.hoveredItem === visual && this.itemUnderPointer() === visual
+                        && this.pointerInside && this.tooltipFocused && !this.activeDrag && !this.isProcessingTurn) {
+                        const pointer = this.input.activePointer;
+                        this.itemTooltip.show(buildItemTooltipContent(visual.itemModel,
+                            previewPoweredEffect(this.inventory, visual.itemModel)), pointer.x, pointer.y);
+                    }
+                });
+            }
+        }
+        if (visual && this.itemTooltip.visible) {
+            const pointer = this.input.activePointer;
+            this.itemTooltip.show(buildItemTooltipContent(visual.itemModel,
+                previewPoweredEffect(this.inventory, visual.itemModel)), pointer.x, pointer.y);
+        }
     }
 
     private createCombatUI(): void {
@@ -246,6 +350,7 @@ export class GameScene extends Phaser.Scene {
             hint = armors.length ? 'WEAPON + ARMOR READY' : 'WEAPON READY';
         }
         this.hintText.setText(hint);
+        this.refreshConsumerPowerVisuals();
         this.refreshButton();
     }
 
@@ -363,6 +468,7 @@ export class GameScene extends Phaser.Scene {
         }
 
         this.isProcessingTurn = true;
+        this.hideTooltip();
         this.updateCombatUI();
         const batteryIds = this.inventory.items.filter(item => item.type === 'battery').map(item => item.id);
         try {
@@ -393,6 +499,7 @@ export class GameScene extends Phaser.Scene {
         } finally {
             this.isProcessingTurn = false;
             this.updateCombatUI();
+            this.updateTooltipHover();
         }
     }
 
@@ -409,8 +516,19 @@ export class GameScene extends Phaser.Scene {
         const visual = new ItemVisual(this, itemModel, this.cellSize, {
             isInteractionAllowed: () => this.canChangeInventory()
                 && (!this.activeDrag || this.activeDrag.itemModel === itemModel),
+            isPoweredEffectAvailable: item => canUsePoweredEffect(this.inventory, item),
             onClick: clickedVisual => this.selectItem(clickedVisual),
+            onHover: (_visual, pointer) => {
+                this.handlePointerMove(pointer);
+                this.updateTooltipHover();
+            },
+            onHoverEnd: departingVisual => {
+                if (this.hoveredItem === departingVisual) {
+                    this.hideTooltip();
+                }
+            },
             onDragStart: draggedVisual => {
+                this.hideTooltip();
                 this.activeDrag = draggedVisual;
                 itemModel.isSelectedForTurn = false;
                 this.selectionError = null;
@@ -429,8 +547,14 @@ export class GameScene extends Phaser.Scene {
                 }
                 this.activeDrag = null;
                 this.updateCombatUI();
+                this.updateTooltipHover();
             },
-            onDestroy: () => this.visualItemsMap.delete(itemModel.id)
+            onDestroy: destroyedVisual => {
+                if (this.hoveredItem === destroyedVisual) {
+                    this.hideTooltip();
+                }
+                this.visualItemsMap.delete(itemModel.id);
+            }
         });
         this.visualItemsMap.set(itemModel.id, visual);
     }
