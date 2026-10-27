@@ -14,6 +14,7 @@ export interface ConnectedBattery {
 
 export interface ItemConfig {
     id: string;
+    definitionId?: string;
     name: string;
     width: number;
     height: number;
@@ -42,6 +43,7 @@ export interface ItemConfig {
 
 export class Item {
     public id: string;
+    public readonly definitionId: string | null;
     public name: string;
     public width: number;
     public height: number;
@@ -72,6 +74,7 @@ export class Item {
 
     constructor(config: ItemConfig) {
         this.id = config.id;
+        this.definitionId = config.definitionId ?? null;
         this.name = config.name;
         this.width = config.width;
         this.height = config.height;

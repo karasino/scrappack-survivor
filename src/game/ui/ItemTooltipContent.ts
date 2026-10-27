@@ -5,6 +5,7 @@ import { TOOLTIP_TEXT as TEXT } from './TooltipText';
 export interface TooltipLine {
     text: string;
     active?: boolean;
+    tone?: 'powered' | 'warning';
 }
 
 export interface ItemTooltipContent {
@@ -20,8 +21,8 @@ export function formatTooltipNumber(value: number): string {
 
 export function buildItemTooltipContent(item: Item, powerPreview: PoweredEffectPreview): ItemTooltipContent {
     const content: ItemTooltipContent = { name: item.name, type: TEXT.types[item.type], lines: [] };
-    const line = (label: string, value: string | number, active?: boolean): TooltipLine => ({
-        text: `${label}: ${typeof value === 'number' ? formatTooltipNumber(value) : value}`, active
+    const line = (label: string, value: string | number, active?: boolean, tone?: TooltipLine['tone']): TooltipLine => ({
+        text: `${label}: ${typeof value === 'number' ? formatTooltipNumber(value) : value}`, active, tone
     });
     const voltage = item.requiredVoltage === 'low' ? TEXT.low : TEXT.high;
     const inGrid = item.gridX >= 0 && item.gridY >= 0;
@@ -32,7 +33,8 @@ export function buildItemTooltipContent(item: Item, powerPreview: PoweredEffectP
             const weapon = item.type === 'weapon';
             content.lines = [
                 line(weapon ? TEXT.baseDamage : TEXT.baseShield, weapon ? item.baseDamage : item.baseArmor, !powered),
-                line(weapon ? TEXT.poweredDamage : TEXT.poweredShield, weapon ? item.poweredDamage : item.poweredArmor, powered),
+                line(weapon ? TEXT.poweredDamage : TEXT.poweredShield, weapon ? item.poweredDamage : item.poweredArmor,
+                    powered, 'powered'),
                 line(TEXT.requiredVoltage, voltage),
                 line(TEXT.baseEnergyCost, `${formatTooltipNumber(Math.max(0, item.energyCost))} ${weapon ? TEXT.perAttack : TEXT.perTurnUsed}`),
                 line(TEXT.connectedBatteries, inGrid ? item.connectedBatteries.length : 0)
@@ -43,7 +45,7 @@ export function buildItemTooltipContent(item: Item, powerPreview: PoweredEffectP
                     'insufficient-charge': weapon ? TEXT.insufficientWeaponCharge : TEXT.insufficientArmorCharge,
                     'shared-charge-conflict': TEXT.sharedChargeConflict
                 };
-                content.lines.push({ text: warnings[powerPreview.reason] });
+                content.lines.push({ text: warnings[powerPreview.reason], tone: 'warning' });
             }
             break;
         }

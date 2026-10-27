@@ -10,6 +10,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { runTask4Checks } from './task4-checks.mjs';
 import { runEnergyPlanChecks } from './energy-plan-checks.mjs';
 import { runPowerReasonChecks } from './power-reason-checks.mjs';
+import { captureVisualScenarios } from './visual-scenarios.mjs';
+import { runVisualPrototypeChecks } from './visual-prototype-checks.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'scrappack-ui-'));
 const origin = 'http://127.0.0.1:4175';
@@ -142,6 +144,15 @@ try {
         const frame = () => delay(35);
         const restart = () => evaluate('reset()');
 
+        await captureVisualScenarios({ evaluate,read,mouse,click,restart,send,renderer },
+            process.env.SCRAPPACK_VISUAL_CAPTURE);
+
+        if (process.argv.includes('--visual-only')) {
+            await runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+            await cdp('Target.closeTarget',{targetId});
+            continue;
+        }
+
         await check(`({ hp:s.playerHpText.text, enemy:s.enemyHpText.text, status:s.statusText.text,
             hint:s.hintText.text, ready:s.canEndTurn(), inventory:s.inventory.items.length,
             button:[s.endTurnButton.x,s.endTurnButton.y,s.endTurnButton.width,s.endTurnButton.height] })`,
@@ -214,15 +225,16 @@ try {
         await evaluate(`seed([{type:'weapon',id:'a',x:0,y:0}])`);
         await click(225,175);
         await mouse('mouseMoved',663,544);
-        await check('s.endTurnButton.fillColor',0x164429,'hover fill');
+        await delay(160);
+        await check('s.endTurnButton.fillColor',0x46515d,'hover fill completes its 120ms transition');
         await mouse('mousePressed',663,544);
-        await check('s.endTurnButton.fillColor',0x39ff14,'pressed fill');
+        await check('s.endTurnButton.fillColor',0x6b5c43,'pressed fill');
         await mouse('mouseReleased',663,544);
         await click(663,544);
         await check(`({enemy:s.combatEngine.enemyHp,hp:s.combatEngine.playerHp,turns:s.completedTurns,
             shield:s.shieldText.text,selected:s.inventory.items[0].isSelectedForTurn,status:s.statusText.text})`,
         {enemy:46,hp:88,turns:1,shield:'SHIELD LAST: 0',selected:true,status:'TURN 02'},'base damage and double click');
-        for (let attempt = 0; attempt < 40 && !(await read('s.endTurnButton.alpha === 1')); attempt++) {
+        for (let attempt = 0; attempt < 40 && !(await read('s.canEndTurn()')); attempt++) {
             await delay(20);
         }
         await check('[s.canEndTurn(),s.endTurnButton.alpha]',[true,1],'cooldown expires without selection change');
@@ -312,6 +324,7 @@ try {
         await runTask4Checks({ evaluate,read,check,mouse,click,restart,send,renderer });
         await runEnergyPlanChecks({ evaluate,read,check,mouse,click,restart,renderer });
         await runPowerReasonChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+        await runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
 
         const listeners = await read(`({children:s.children.length,up:s.input.listenerCount('pointerup'),
             move:s.input.listenerCount('pointermove'),rotate:s.input.keyboard.listenerCount('keydown-R'),

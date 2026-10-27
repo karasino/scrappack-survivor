@@ -69,7 +69,7 @@ export async function runPowerReasonChecks({ evaluate, read, check, mouse, click
     await check('reasonLines()',[weaponShortage],'connected but insufficient weapon');
     await check("tooltipTexts().includes('Connected batteries: 1')",true,'insufficient source remains counted');
     await check(activeLine,'► Base damage: 4','shortage keeps base active');
-    await check("s.itemTooltip.labels.filter(l=>l.visible&&l.text.startsWith('!')).map(l=>l.style.color)",['#00ff66'],'explanation uses primary green');
+    await check("s.itemTooltip.labels.filter(l=>l.visible&&l.text.startsWith('!')).map(l=>l.style.color)",['#d6ad65'],'explanation uses warning accent');
     const pointer = await read('[s.input.activePointer.x,s.input.activePointer.y]');
     await evaluate("s.visualItemsMap.get('A').itemModel.charge=4");
     await waitFor('reasonLines().length===0','sufficient charge clears warning');

@@ -8,11 +8,12 @@ import type { CombatTurnLog } from '../core/CombatEngine';
 import { ItemTooltip } from '../ui/ItemTooltip';
 import { buildItemTooltipContent } from '../ui/ItemTooltipContent';
 import { canUsePoweredEffect, previewPoweredEffect } from '../core/EnergyPlan';
+import { UITheme, cssColor } from '../ui/UITheme';
+import { ITEM_PRESENTATIONS } from '../ui/ItemPresentation';
 
 type BattleState = 'active' | 'victory' | 'defeat';
 
-const UI_DEPTH = 100;
-const GREEN = 0x00ff66;
+const UI_DEPTH = UITheme.layers.hud;
 
 export class GameScene extends Phaser.Scene {
     private inventory!: Inventory;
@@ -48,6 +49,8 @@ export class GameScene extends Phaser.Scene {
     private endTurnLabel!: Phaser.GameObjects.Text;
     private buttonHovered = false;
     private buttonPointerId: number | null = null;
+    private buttonTween: Phaser.Tweens.Tween | null = null;
+    private buttonTargetColor: number | null = null;
 
     private readonly cellSize = 50;
     private readonly gridStartX = 200;
@@ -74,10 +77,22 @@ export class GameScene extends Phaser.Scene {
         this.selectionError = null;
         this.buttonHovered = false;
         this.buttonPointerId = null;
+        this.buttonTween = null;
+        this.buttonTargetColor = null;
         this.hoveredItem = null;
         this.tooltipTimer = null;
         this.pointerInside = false;
         this.tooltipFocused = this.game.loop.inFocus;
+    }
+
+    preload(): void {
+        for (const presentation of Object.values(ITEM_PRESENTATIONS)) {
+            if (!this.textures.exists(presentation.textureKey)) {
+                // Phaser continues after a file error. ItemVisual checks the cache
+                // before creating an Image, so missing/invalid art stays a label.
+                this.load.image(presentation.textureKey, presentation.path);
+            }
+        }
     }
 
     create(): void {
@@ -96,7 +111,7 @@ export class GameScene extends Phaser.Scene {
 
         this.drawGrid();
         const battery = new Item({
-            id: 'scrap_battery_01', name: 'Rusty Battery', type: 'battery',
+            id: 'scrap_battery_01', definitionId: 'rusty_battery', name: 'Rusty Battery', type: 'battery',
             width: 2, height: 1, capacity: 5, maxCapacity: 5,
             charge: 5, maxCharge: 5, voltageType: 'low', color: 0x00ff00
         });
@@ -124,6 +139,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     private handleShutdown(): void {
+        this.buttonTween?.remove();
+        this.buttonTween = null;
         this.input.off('pointerup', this.releaseButton, this);
         this.input.off('pointerupoutside', this.handlePointerOutside, this);
         this.input.off('gameout', this.handlePointerOutside, this);
@@ -161,14 +178,18 @@ export class GameScene extends Phaser.Scene {
 
     private handlePointerOutside(): void {
         this.pointerInside = false;
+        this.buttonHovered = false;
         this.hideTooltip();
         this.cancelGestures();
+        this.finishButtonTransition();
     }
 
     private handleBlur(): void {
         this.tooltipFocused = false;
+        this.buttonHovered = false;
         this.hideTooltip();
         this.cancelGestures();
+        this.finishButtonTransition();
     }
 
     private handleFocus(): void {
@@ -198,7 +219,7 @@ export class GameScene extends Phaser.Scene {
             this.hideTooltip();
             if (visual) {
                 this.hoveredItem = visual;
-                this.tooltipTimer = this.time.delayedCall(300, () => {
+                this.tooltipTimer = this.time.delayedCall(UITheme.durations.tooltipDelay, () => {
                     this.tooltipTimer = null;
                     if (this.hoveredItem === visual && this.itemUnderPointer() === visual
                         && this.pointerInside && this.tooltipFocused && !this.activeDrag && !this.isProcessingTurn) {
@@ -222,32 +243,32 @@ export class GameScene extends Phaser.Scene {
         // Scrap items are interactive above their panel background.
         this.drawPanel(550, 218, 226, 202, 1);
         this.drawPanel(24, 476, 476, 100);
-        this.addLabel(200, 110, 'SCRAPPACK INVENTORY', 20);
-        this.addLabel(36, 164, 'PLAYER HP', 16);
+        this.addLabel(200, 110, 'SCRAPPACK INVENTORY', UITheme.fonts.heading);
+        this.addLabel(36, 164, 'PLAYER HP', UITheme.fonts.panelHeading);
         this.playerHpFill = this.createHealthBar(36, 190, 128);
-        this.playerHpText = this.addLabel(36, 212, '', 14);
-        this.shieldText = this.addLabel(36, 240, '', 12);
-        this.hitText = this.addLabel(36, 262, '', 12);
-        this.addLabel(562, 70, this.combatEngine.enemyName, 18);
+        this.playerHpText = this.addLabel(36, 212, '', UITheme.fonts.body);
+        this.shieldText = this.addLabel(36, 240, '', UITheme.fonts.body);
+        this.hitText = this.addLabel(36, 262, '', UITheme.fonts.body);
+        this.addLabel(562, 70, this.combatEngine.enemyName, UITheme.fonts.panelHeading);
         this.enemyHpFill = this.createHealthBar(562, 104, 202);
-        this.enemyHpText = this.addLabel(562, 126, '', 14);
-        this.addLabel(562, 150, `ATK: ${this.combatEngine.enemyBaseDamage}`, 14);
-        this.statusText = this.addLabel(550, 190, '', 18);
-        this.addLabel(562, 228, 'SCRAP', 12);
-        this.scavengeButton = this.addLabel(550, 450, 'SCAVENGE SCRAP', 20)
+        this.enemyHpText = this.addLabel(562, 126, '', UITheme.fonts.body);
+        this.addLabel(562, 150, `ATK: ${this.combatEngine.enemyBaseDamage}`, UITheme.fonts.body);
+        this.statusText = this.addLabel(550, 190, '', UITheme.fonts.panelHeading);
+        this.addLabel(562, 228, 'SCRAP', UITheme.fonts.body);
+        this.scavengeButton = this.addLabel(550, 450, 'SCAVENGE SCRAP', UITheme.fonts.heading)
             .setInteractive({ useHandCursor: true })
             .on('pointerdown', (pointer: Phaser.Input.Pointer) => {
                 if (pointer.leftButtonDown()) {
                     this.spawnRandomItem();
                 }
             });
-        this.hintText = this.addLabel(550, 482, '', 12)
-            .setColor('#72b887').setWordWrapWidth(226, true).setMaxLines(2);
-        this.addLabel(36, 486, 'TURN LOG', 12);
-        this.logText = this.addLabel(36, 506, '', 12).setColor('#72b887')
-            .setWordWrapWidth(452, true).setLineSpacing(2);
-        // Fixed metrics give a 14px baseline step in both renderers.
-        this.logText.setStyle({ metrics: { ascent: 10, descent: 2, fontSize: 12 } });
+        this.hintText = this.addLabel(550, 482, '', UITheme.fonts.body)
+            .setColor(cssColor(UITheme.colors.secondaryText)).setWordWrapWidth(226, true).setMaxLines(2)
+            .setLineSpacing(UITheme.fonts.hintLine - UITheme.fonts.body);
+        this.addLabel(36, 486, 'TURN LOG', UITheme.fonts.log);
+        this.logText = this.addLabel(36, 506, '', UITheme.fonts.log)
+            .setColor(cssColor(UITheme.colors.secondaryText)).setWordWrapWidth(452, true)
+            .setLineSpacing(UITheme.fonts.logLine - UITheme.fonts.log);
         this.logMaskGraphics = this.add.graphics();
         this.logMaskGraphics.fillStyle(0xffffff).fillRect(36, 506, 452, 60);
         this.children.remove(this.logMaskGraphics);
@@ -259,10 +280,10 @@ export class GameScene extends Phaser.Scene {
             this.logText.setMask(this.logMaskGraphics.createGeometryMask());
         }
 
-        this.endTurnButton = this.add.rectangle(550, 520, 226, 48, 0x0c2816)
-            .setOrigin(0).setDepth(UI_DEPTH + 1).setStrokeStyle(1, GREEN)
+        this.endTurnButton = this.add.rectangle(550, 520, 226, 48, UITheme.colors.button)
+            .setOrigin(0).setDepth(UI_DEPTH + 1).setStrokeStyle(UITheme.borders.panel, UITheme.colors.border)
             .setInteractive();
-        this.endTurnLabel = this.addLabel(663, 544, 'END TURN', 20).setOrigin(0.5);
+        this.endTurnLabel = this.addLabel(663, 544, 'END TURN', UITheme.fonts.heading).setOrigin(0.5);
         this.endTurnButton.on('pointerover', () => {
             this.buttonHovered = true;
             this.refreshButton();
@@ -289,20 +310,20 @@ export class GameScene extends Phaser.Scene {
 
     private addLabel(x: number, y: number, text: string, size: number): Phaser.GameObjects.Text {
         return this.add.text(x, y, text, {
-            fontSize: `${size}px`, color: '#00ff66', fontFamily: 'monospace'
+            fontSize: `${size}px`, color: cssColor(UITheme.colors.text), fontFamily: UITheme.fonts.family,
+            metrics: { ascent: size - 3, descent: 3, fontSize: size }
         }).setOrigin(0).setDepth(UI_DEPTH + 2);
     }
 
-    private drawPanel(x: number, y: number, width: number, height: number, depth = UI_DEPTH): void {
+    private drawPanel(x: number, y: number, width: number, height: number, depth: number = UI_DEPTH): void {
         const graphics = this.add.graphics().setDepth(depth);
-        graphics.fillStyle(0x07140b).fillRect(x, y, width, height);
-        graphics.lineStyle(5, GREEN, 0.12).strokeRect(x, y, width, height);
-        graphics.lineStyle(1, GREEN).strokeRect(x, y, width, height);
+        graphics.fillStyle(UITheme.colors.panel).fillRect(x, y, width, height);
+        graphics.lineStyle(UITheme.borders.panel, UITheme.colors.border).strokeRect(x, y, width, height);
     }
 
     private createHealthBar(x: number, y: number, width: number): Phaser.GameObjects.Rectangle {
-        this.add.rectangle(x, y, width, 14, 0x102b18).setOrigin(0).setDepth(UI_DEPTH + 1);
-        return this.add.rectangle(x, y, width, 14, 0x39ff14).setOrigin(0).setDepth(UI_DEPTH + 1);
+        this.add.rectangle(x, y, width, 14, UITheme.colors.barBackground).setOrigin(0).setDepth(UI_DEPTH + 1);
+        return this.add.rectangle(x, y, width, 14, UITheme.colors.health).setOrigin(0).setDepth(UI_DEPTH + 1);
     }
 
     private updateCombatUI(): void {
@@ -328,7 +349,8 @@ export class GameScene extends Phaser.Scene {
             visual.setInteractionEnabled(canChange && (!this.activeDrag || this.activeDrag === visual));
         }
         this.scavengeButton.input!.enabled = canChange && !this.activeDrag;
-        this.scavengeButton.setAlpha(canChange && !this.activeDrag ? 1 : 0.35);
+        this.scavengeButton.setColor(cssColor(canChange && !this.activeDrag
+            ? UITheme.colors.text : UITheme.colors.disabledText));
 
         const { weapons, armors, valid } = this.getSelection();
         let hint: string;
@@ -401,18 +423,50 @@ export class GameScene extends Phaser.Scene {
     private refreshButton(): void {
         const enabled = this.canEndTurn();
         const pressed = enabled && this.buttonPointerId !== null;
-        this.endTurnButton.setAlpha(enabled ? 1 : 0.35)
-            .setFillStyle(pressed ? 0x39ff14 : enabled && this.buttonHovered ? 0x164429 : 0x0c2816);
+        const target = !enabled ? UITheme.colors.buttonDisabled : pressed ? UITheme.colors.buttonPressed
+            : this.buttonHovered ? UITheme.colors.buttonHover : UITheme.colors.button;
+        if (target !== this.buttonTargetColor) {
+            this.buttonTween?.remove();
+            this.buttonTween = null;
+            this.buttonTargetColor = target;
+            if (enabled && !pressed) {
+                const from = Phaser.Display.Color.ValueToColor(this.endTurnButton.fillColor);
+                const to = Phaser.Display.Color.ValueToColor(target);
+                const progress = { value: 0 };
+                this.buttonTween = this.tweens.add({
+                    targets: progress, value: 1, duration: UITheme.durations.buttonHover,
+                    onUpdate: () => {
+                        const color = Phaser.Display.Color.Interpolate.ColorWithColor(from, to, 1, progress.value);
+                        this.endTurnButton.setFillStyle(Phaser.Display.Color.GetColor(color.r, color.g, color.b));
+                    },
+                    onComplete: () => {
+                        this.endTurnButton.setFillStyle(target);
+                        this.buttonTween = null;
+                    }
+                });
+            } else {
+                this.endTurnButton.setFillStyle(target);
+            }
+        }
+        this.endTurnButton.setAlpha(1);
         this.endTurnButton.input!.cursor = enabled ? 'pointer' : 'default';
         if (this.buttonHovered) {
             this.input.setCursor(this.endTurnButton.input!);
         }
-        this.endTurnLabel.setAlpha(enabled ? 1 : 0.35).setColor(pressed ? '#07140b' : '#00ff66');
+        this.endTurnLabel.setAlpha(1).setColor(cssColor(enabled ? UITheme.colors.text : UITheme.colors.disabledText));
     }
 
     private releaseButton(): void {
         this.buttonPointerId = null;
         this.refreshButton();
+    }
+
+    private finishButtonTransition(): void {
+        this.buttonTween?.remove();
+        this.buttonTween = null;
+        if (this.buttonTargetColor !== null) {
+            this.endTurnButton.setFillStyle(this.buttonTargetColor);
+        }
     }
 
     private cancelGestures(): void {
@@ -580,7 +634,7 @@ export class GameScene extends Phaser.Scene {
 
     private drawGrid(): void {
         const graphics = this.add.graphics();
-        graphics.lineStyle(1, GREEN, 0.5);
+        graphics.lineStyle(UITheme.borders.grid, UITheme.colors.border);
         for (let row = 0; row < this.inventory.height; row++) {
             for (let col = 0; col < this.inventory.width; col++) {
                 graphics.strokeRect(this.gridStartX + col * this.cellSize,

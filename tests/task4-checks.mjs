@@ -121,7 +121,7 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     await check('s.tooltipTimer===firstTooltipTimer',true,'movement inside item preserves timer');
     await waitFor('s.itemTooltip.visible','continuous hover');
     await check('tooltipTexts().slice(0,2)',['Laser Pistol','Weapon'],'weapon panel content');
-    await check('tooltipLabels().find(l=>l.text.startsWith("►")).color','#39ff14','base effect highlighted');
+    await check('tooltipLabels().find(l=>l.text.startsWith("►")).color','#e6e2d8','base effect highlighted with primary text');
     const children = await read('s.children.length');
     await evaluate('globalThis.tooltipInstance=s.itemTooltip;undefined');
     await click(230,178);
@@ -217,7 +217,8 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
             return sides.map(side=>{
                 const x=r.x+r.width/2+side.x*(r.width/2+6), y=r.y+r.height/2+side.y*(r.height/2+6);
                 const pixels=ctx.getImageData(Math.floor(x)-3,Math.floor(y)-3,7,7).data;
-                let count=0;for(let i=0;i<pixels.length;i+=4)if(pixels[i]>180&&pixels[i+1]>225&&pixels[i+2]>100&&pixels[i+2]<180)count++;
+                let count=0;for(let i=0;i<pixels.length;i+=4)if(Math.abs(pixels[i]-201)<12
+                    &&Math.abs(pixels[i+1]-170)<12&&Math.abs(pixels[i+2]-114)<12)count++;
                 return count>0;
             });
         })()`);
