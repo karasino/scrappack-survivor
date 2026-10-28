@@ -41,7 +41,7 @@ export async function runVisualPrototypeChecks({ evaluate, read, check, mouse, c
         if(cssColor(UITheme.colors.text)!=='#e6e2d8')throw Error('Theme primary text');
     })()`);
     await check('task5Legacy.definitionId',null,'legacy item configs remain valid');
-    await check('task5Definitions',['weak_battery','heavy_battery','copper_wire','step_up_transformer','laser_pistol','makeshift_vest'],
+    await check('task5Definitions',['weak_battery','heavy_battery','copper_wire','step_up_transformer','laser_pistol','makeshift_vest','power_core','precision_mechanism','medkit'],
         'loot definitions are stable');
     await check("s.visualItemsMap.get('scrap_battery_01').itemModel.definitionId",'rusty_battery','starter identity');
     await check("s.visualItemsMap.get('scrap_battery_01').image",null,'Rusty Battery keeps its own placeholder');
@@ -71,9 +71,9 @@ export async function runVisualPrototypeChecks({ evaluate, read, check, mouse, c
         await check(`['unknown','no-definition'].map(id=>{const v=s.visualItemsMap.get(id);return [v.image,!!v.text.text];})`,
             [[null,true],[null,true]],'unknown and legacy definitions have labelled fallbacks');
         await click(325,175);
-        await check(`(()=>{const v=s.visualItemsMap.get('art-gun');return [v.rect.isStroked,v.rect.strokeColor,
-            v.rect.lineWidth,v.selectionGraphics.commandBuffer.length>0,v.text.visible];})()`,
-        [true,0x80b4a2,1,true,false],'art, power and selection coexist');
+        await check(`(()=>{const v=s.visualItemsMap.get('art-gun');return [v.rect.isStroked,v.powerGraphics.commandBuffer.length>0,
+            v.selectionGraphics.commandBuffer.length>0,v.text.visible];})()`,
+        [false,true,true,false],'art, power indicator and inset selection coexist');
 
         const waitFor = async (condition,label) => {
             for(let i=0;i<100;i++){if(await read(condition))return;await delay(20);}

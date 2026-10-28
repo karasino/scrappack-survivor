@@ -9,7 +9,8 @@
     "preview": "vite preview",
     "test:combat-ui": "node tests/combat-ui.mjs",
     "test:visual": "node tests/combat-ui.mjs --visual-only",
-    "test:exploration": "node tests/combat-ui.mjs --exploration-only"
+    "test:exploration": "node tests/combat-ui.mjs --exploration-only",
+    "test:crafting": "node tests/combat-ui.mjs --crafting-only"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

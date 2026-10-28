@@ -1,9 +1,11 @@
+import type { LootSpec } from './Crafting';
+
 export interface WorldPosition {
     x: number;
     y: number;
 }
 
-export type EnemyKind = 'rat' | 'scorpion';
+export type EnemyKind = 'rat' | 'scorpion' | 'brute';
 
 export interface EnemyDefinition {
     name: string;
@@ -11,23 +13,32 @@ export interface EnemyDefinition {
     damage: number;
     detectionRadius: number;
     idlePeriod: number;
-    rewardDefinitionId: string;
-    rewardCharge: number;
+    reward: readonly LootSpec[];
+    isBoss?: boolean;
 }
 
 export interface SectorDefinition {
     rows: readonly string[];
-    loot: Readonly<Record<string, readonly string[]>>;
+    loot: Readonly<Record<string, readonly LootSpec[]>>;
+    boss?: boolean;
 }
 
 export const ENEMY_DEFINITIONS: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     rat: {
         name: 'Scrap Rat', maxHp: 12, damage: 5, detectionRadius: 3, idlePeriod: 2,
-        rewardDefinitionId: 'weak_battery', rewardCharge: 2
+        reward: [{ kind: 'material', material: 'metal', amount: 1 },
+            { kind: 'material', material: 'electronics', amount: 1 }]
     },
     scorpion: {
         name: 'Rad-Scorpion', maxHp: 24, damage: 8, detectionRadius: 4, idlePeriod: 3,
-        rewardDefinitionId: 'heavy_battery', rewardCharge: 4
+        reward: [{ kind: 'material', material: 'metal', amount: 2 },
+            { kind: 'material', material: 'electronics', amount: 1 }]
+    },
+    brute: {
+        name: 'Scrap Brute', maxHp: 66, damage: 14, detectionRadius: 4, idlePeriod: 3,
+        isBoss: true,
+        reward: [{ kind: 'item', definitionId: 'power_core', quantity: 2 },
+            { kind: 'item', definitionId: 'precision_mechanism', quantity: 1 }]
     }
 };
 
@@ -44,11 +55,17 @@ export const SECTOR_DEFINITIONS: readonly SectorDefinition[] = [
             'S.......'
         ],
         loot: {
-            '1': ['weak_battery', 'copper_wire'],
-            '2': ['heavy_battery', 'step_up_transformer']
+            '1': [{ kind: 'material', material: 'metal', amount: 2 },
+                { kind: 'material', material: 'fabric', amount: 2 }],
+            '2': [{ kind: 'material', material: 'metal', amount: 2 },
+                { kind: 'material', material: 'electronics', amount: 4 },
+                { kind: 'material', material: 'fabric', amount: 2 },
+                { kind: 'item', definitionId: 'power_core' },
+                { kind: 'item', definitionId: 'precision_mechanism' }]
         }
     },
     {
+        boss: true,
         rows: [
             '..#....X',
             '..#c.#..',
@@ -60,8 +77,12 @@ export const SECTOR_DEFINITIONS: readonly SectorDefinition[] = [
             'S.......'
         ],
         loot: {
-            '1': ['weak_battery', 'makeshift_vest'],
-            '2': ['heavy_battery', 'copper_wire']
+            '1': [{ kind: 'material', material: 'metal', amount: 2 },
+                { kind: 'material', material: 'fabric', amount: 3 }],
+            '2': [{ kind: 'material', material: 'metal', amount: 2 },
+                { kind: 'material', material: 'electronics', amount: 5 },
+                { kind: 'item', definitionId: 'power_core' },
+                { kind: 'item', definitionId: 'precision_mechanism' }]
         }
     }
 ];

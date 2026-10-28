@@ -13,6 +13,12 @@ import { buildItemTooltipContent } from '../ui/ItemTooltipContent';
 import { canUsePoweredEffect, previewPoweredEffect } from '../core/EnergyPlan';
 import { UITheme, cssColor } from '../ui/UITheme';
 import { ITEM_PRESENTATIONS } from '../ui/ItemPresentation';
+import { LootTable } from '../core/LootTable';
+import { MATERIAL_CAPACITY, MATERIAL_NAMES, RECIPES } from '../core/Crafting';
+import { ViewButton } from '../ui/ViewButton';
+import { WorkshopView } from '../ui/WorkshopView';
+import { RunOverlayView } from '../ui/RunOverlayView';
+import { buildGroundPanelContent } from '../ui/GroundPanelContent';
 
 type BattleState = 'active' | 'victory' | 'defeat';
 
@@ -29,12 +35,24 @@ export class GameScene extends Phaser.Scene {
     public compact = false;
     public backpackView = false;
     public mapView!: ExplorationMapView;
+    public workshopView!: WorkshopView;
+    public runOverlay!: RunOverlayView;
+    public healButton!: ViewButton;
+    public materialPanel!: Phaser.GameObjects.Rectangle;
+    public takeMaterialButton!: ViewButton;
+    public groundMaterialText!: Phaser.GameObjects.Text;
+    private materialText!: Phaser.GameObjects.Text;
+    private healHint!: Phaser.GameObjects.Text;
+    private gridGraphics!: Phaser.GameObjects.Graphics;
+    private groundTitle!: Phaser.GameObjects.Text;
+    private groundStatus!: Phaser.GameObjects.Text;
     private readonly backpackObjects: HudObject[] = [];
     private uiSection: 'common' | 'backpack' = 'backpack';
     private dragOrigin: DragOrigin | null = null;
     private groundPage = 0;
     private groundPageKey = '';
     private hoveredEnemyId: string | null = null;
+    private materialPointerId: number | null = null;
     private groundCounter!: Phaser.GameObjects.Text;
     private groundEmptyText!: Phaser.GameObjects.Text;
     private previousGround!: Phaser.GameObjects.Text;
@@ -100,6 +118,7 @@ export class GameScene extends Phaser.Scene {
         this.groundPageKey = '';
         this.dragOrigin = null;
         this.hoveredEnemyId = null;
+        this.materialPointerId = null;
         this.compact = false;
         this.backpackView = false;
         this.messages.length = 0;
@@ -158,14 +177,15 @@ export class GameScene extends Phaser.Scene {
                     this.updateCombatUI();
                 }
             },
-            onNewRun: () => this.startNewRun()
+            onNewRun: () => { if (!this.hasOverlay()) this.startNewRun(); }
         });
+        this.createRunUI();
         this.uiSection = 'common';
         this.toggleButton = this.addLabel(650, 12, 'BACKPACK', UITheme.fonts.panelHeading)
             .setFixedSize(126, 32).setPadding(10, 6).setBackgroundColor(cssColor(UITheme.colors.button))
             .setInteractive({ useHandCursor: true })
             .on('pointerup', (pointer: Phaser.Input.Pointer) => { if (pointer.button === 0) this.toggleBackpack(); });
-        this.compactSummary = this.addLabel(24, 326, '', UITheme.fonts.body)
+        this.compactSummary = this.addLabel(24, 390, '', UITheme.fonts.body)
             .setWordWrapWidth(152, true).setLineSpacing(3);
         this.appendMessage('Explore with WASD or arrows. Search scrap, manage your pack, and reach the exit.');
         this.appendMessage(`RUN SEED: ${this.run.seed}`);
@@ -202,6 +222,10 @@ export class GameScene extends Phaser.Scene {
         this.input.keyboard?.off('keydown', this.handleWorldKey, this);
         window.removeEventListener('resize', this.resizeHandler);
         this.mapView?.destroy();
+        this.workshopView?.destroy();
+        this.runOverlay?.destroy();
+        this.healButton?.destroy();
+        this.takeMaterialButton?.destroy();
         this.hideTooltip();
         for (const visual of this.visualItemsMap.values()) {
             visual.destroy();
@@ -264,7 +288,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     private updateTooltipHover(): void {
-        if (!this.pointerInside || !this.tooltipFocused || this.isProcessingTurn || this.activeDrag) {
+        if (!this.pointerInside || !this.tooltipFocused || this.isProcessingTurn || this.activeDrag || this.hasOverlay()) {
             this.hideTooltip();
             return;
         }
@@ -310,9 +334,13 @@ export class GameScene extends Phaser.Scene {
         this.enemyHpText = this.addLabel(562, 126, '', UITheme.fonts.body);
         this.enemyAttackText = this.addLabel(562, 150, '', UITheme.fonts.body);
         this.statusText = this.addLabel(550, 190, '', UITheme.fonts.panelHeading);
-        this.addLabel(562, 228, 'GROUND', UITheme.fonts.body);
-        this.groundEmptyText = this.addLabel(562, 268, 'NOTHING HERE', UITheme.fonts.body)
-            .setWordWrapWidth(202, true).setColor(cssColor(UITheme.colors.secondaryText));
+        this.groundTitle = this.addLabel(UITheme.ground.x, 228, 'GROUND', UITheme.fonts.body)
+            .setWordWrapWidth(UITheme.ground.width, true).setMaxLines(1);
+        this.groundStatus = this.addLabel(UITheme.ground.x, 248, '', 12)
+            .setWordWrapWidth(UITheme.ground.width, true).setMaxLines(1)
+            .setColor(cssColor(UITheme.colors.secondaryText));
+        this.groundEmptyText = this.addLabel(UITheme.ground.x, UITheme.ground.y + 20, 'NOTHING HERE', UITheme.fonts.body)
+            .setWordWrapWidth(UITheme.ground.width, true).setColor(cssColor(UITheme.colors.secondaryText));
         this.previousGround = this.addLabel(550, 450, 'PREV', UITheme.fonts.body)
             .setInteractive({ useHandCursor: true })
             .on('pointerup', (p: Phaser.Input.Pointer) => { if (p.button === 0) this.changeGroundPage(-1); });
@@ -368,6 +396,144 @@ export class GameScene extends Phaser.Scene {
         });
     }
 
+    private createRunUI(): void {
+        this.uiSection = 'common';
+        this.materialPanel = this.add.rectangle(24, 24, 476, 56, UITheme.colors.panel).setOrigin(0)
+            .setDepth(UI_DEPTH).setStrokeStyle(1, UITheme.colors.border).setInteractive({ useHandCursor: true })
+            .on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+                this.materialPointerId = pointer.leftButtonDown() ? pointer.id : null;
+            })
+            .on('pointerout', () => { this.materialPointerId = null; })
+            .on('pointerup', (pointer: Phaser.Input.Pointer) => {
+                const accepted = pointer.button === 0 && this.materialPointerId === pointer.id;
+                this.materialPointerId = null;
+                if (accepted) this.openMaterials();
+            });
+        this.materialText = this.addLabel(36, 32, '', 14).setLineSpacing(5);
+        this.healButton = new ViewButton(this, 'HEAL +25 (1)', () => this.performHeal()).place(24, 312, 152, 36);
+        this.healHint = this.addLabel(24, 352, '', 13).setWordWrapWidth(152, true).setMaxLines(2).setLineSpacing(3)
+            .setColor(cssColor(UITheme.colors.secondaryText));
+        this.uiSection = 'backpack';
+        this.groundMaterialText = this.addLabel(UITheme.ground.x + 12, UITheme.ground.y + 10, '', 16)
+            .setWordWrapWidth(UITheme.ground.width - 24, true).setLineSpacing(8);
+        this.takeMaterialButton = new ViewButton(this, 'TAKE', () => this.collectGroundMaterial())
+            .place(UITheme.ground.x + 32, UITheme.ground.y + 88, 138, 36);
+        this.workshopView = new WorkshopView(this, RECIPES, () => this.updateCombatUI(),
+            () => this.craftSelectedRecipe(), () => this.continueWorkshop());
+        this.runOverlay = new RunOverlayView(this, () => {
+            this.runOverlay.setKind(null);
+            this.updateCombatUI();
+        }, material => {
+            if (this.run.dropMaterial(material)) this.updateCombatUI();
+        }, () => this.acknowledgeReward());
+    }
+
+    private hasOverlay(): boolean { return this.run.mode === 'boss-reward' || (this.runOverlay?.kind ?? null) !== null; }
+
+    public openMaterials(): void {
+        if (this.activeDrag || this.isProcessingTurn || this.hasOverlay()) return;
+        this.cancelGestures();
+        this.hideTooltip();
+        this.runOverlay.setKind('materials');
+        this.updateCombatUI();
+    }
+
+    public collectGroundMaterial(): void {
+        if (this.hasOverlay() || this.activeDrag || this.isProcessingTurn ||
+            (this.run.mode !== 'exploration' && this.run.mode !== 'workshop')) return;
+        const loot = this.run.looseLoot()[this.groundPage];
+        if (loot?.kind === 'material') {
+            const amount = this.run.collectMaterials(loot.id);
+            if (amount > 0) this.appendMessage(`TAKEN: ${MATERIAL_NAMES[loot.material]} ×${amount}`);
+        }
+        this.updateCombatUI();
+    }
+
+    public craftSelectedRecipe(): void {
+        if (this.hasOverlay() || this.activeDrag || this.isProcessingTurn || this.run.mode !== 'workshop') return;
+        this.hideTooltip();
+        const item = this.run.craftRecipe(this.workshopView.selectedRecipe);
+        if (item) {
+            this.appendMessage(`CRAFTED: ${item.name}. Move it from the bench into your backpack.`);
+            this.groundPage = this.run.looseLoot().findIndex(loot => loot.kind === 'item' && loot.item === item);
+        }
+        this.updateCombatUI();
+    }
+
+    public continueWorkshop(): void {
+        if (this.hasOverlay() || this.activeDrag || this.isProcessingTurn || this.run.mode !== 'workshop') return;
+        this.hideTooltip();
+        if (this.run.continueFromWorkshop()) {
+            this.backpackView = false;
+            this.completedTurns = 0;
+            this.lastTurnLog = null;
+            this.selectionError = null;
+            this.appendMessage(this.isRunFinished() ? 'DEMO COMPLETE' : 'Prepared for the next sector.');
+            this.updateCombatUI();
+        }
+    }
+
+    public acknowledgeReward(): void {
+        if (this.run.mode !== 'boss-reward' || !this.run.acknowledgeBossReward()) return;
+        this.runOverlay.setKind(null);
+        if (this.compact) this.backpackView = false;
+        this.hideTooltip();
+        this.updateCombatUI();
+    }
+
+    private medkits(): Item[] {
+        return this.inventory.items.filter(item => item.type === 'consumable' && item.healingAmount > 0)
+            .sort((a, b) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0);
+    }
+
+    private canHeal(): boolean {
+        const armors = this.getSelection().armors;
+        return !this.hasOverlay() && !this.activeDrag && !this.isProcessingTurn && !this.hasCombatError
+            && this.run.playerHp < this.run.playerMaxHp && this.medkits().length > 0
+            && (this.run.mode === 'exploration' || this.run.mode === 'workshop' ||
+                this.run.mode === 'combat' && armors.length <= 1 && this.time.now >= this.nextAllowedTurnAt);
+    }
+
+    public performHeal(): void {
+        if (!this.canHeal()) return;
+        const kit = this.medkits()[0];
+        this.hideTooltip();
+        if (this.run.mode === 'combat') this.resolveCombatAction(kit.id);
+        else if (this.run.mode === 'exploration') this.performWorldAction({ type: 'heal', itemId: kit.id }, true);
+        else {
+            const restored = this.run.useMedkit(kit.id);
+            if (restored > 0) this.appendMessage(`MEDKIT: restored ${restored} HP.`);
+            this.updateCombatUI();
+        }
+    }
+
+    private refreshWorkshop(): void {
+        if (this.run.mode !== 'workshop') return;
+        const preview = this.run.previewRecipe(this.workshopView.selectedRecipe);
+        const recipe = preview.recipe;
+        const componentName = (id: string): string => LootTable.find(item => item.definitionId === id)?.name ?? id;
+        const output = LootTable.find(item => item.definitionId === recipe?.outputDefinitionId);
+        const description = output?.type === 'battery' ? `Charge: ${output.charge} / ${output.maxCharge} — ${output.voltageType === 'low' ? 'Low' : 'High'} voltage`
+            : output?.type === 'weapon' ? `Damage: ${output.baseDamage} / ${output.poweredDamage} powered`
+                : output?.type === 'armor' ? `Shield: ${output.baseArmor} / ${output.poweredArmor} powered`
+                    : output?.type === 'consumable' ? `Restores up to ${output.healingAmount} HP. Field/combat: one turn.`
+                        : output?.type === 'wire' ? 'Carries power between connected items.' : 'Low → High; +1 to energy cost multiplier.';
+        const cost = recipe ? [
+            ...(['metal', 'electronics', 'fabric'] as const).filter(type => recipe.materials[type] > 0)
+                .map(type => `${MATERIAL_NAMES[type]} ${recipe.materials[type]} (${this.run.materials[type]})`),
+            ...Object.entries(recipe.components).map(([id, amount]) => `${componentName(id)} ×${amount} (${this.inventory.items.filter(item => item.definitionId === id).length})`)
+        ].join('\n') : '';
+        const missingIngredients = Object.values(preview.missingMaterials).some(amount => amount > 0)
+            || Object.keys(preview.missingComponents).length > 0;
+        // Keep the footer to two lines at 800 × 600; the complete costs are listed above.
+        const reason = recipe && !this.activeDrag && missingIngredients
+            ? 'Missing ingredients. Costs show required (owned).' : preview.reason;
+        this.workshopView.refresh({ recipes: RECIPES, selectedId: this.workshopView.selectedRecipe,
+            details: `${recipe?.name ?? 'Select a recipe'}\n${description}\n${cost}`,
+            reason, canCraft: preview.canCraft, final: this.run.workshopFinal,
+            enabled: !this.hasOverlay() && !this.activeDrag && !this.isProcessingTurn && !this.hasCombatError });
+    }
+
     private addLabel(x: number, y: number, text: string, size: number): Phaser.GameObjects.Text {
         const label = this.add.text(x, y, text, {
             fontSize: `${size}px`, color: cssColor(UITheme.colors.text), fontFamily: UITheme.fonts.family,
@@ -393,11 +559,15 @@ export class GameScene extends Phaser.Scene {
 
     private updateCombatUI(): void {
         if (!this.playerHpFill) return;
+        if (this.run.mode === 'boss-reward' && this.runOverlay?.kind !== 'reward') {
+            this.hideTooltip();
+            this.runOverlay?.setKind('reward');
+            if (this.compact) this.backpackView = true;
+        }
         const showPack = !this.compact || this.backpackView;
         for (const object of this.backpackObjects) object.setVisible(showPack);
         const engine = this.combatEngine;
-        // The session owns HP; the calculator is authoritative while a turn is active.
-        if (this.run.mode === 'combat' && engine) this.run.playerHp = engine.playerHp;
+        // RunState synchronizes health after every attack and healing action.
         const updateBar = (bar: Phaser.GameObjects.Rectangle, hp: number, max: number, width: number, visible = true): void => {
             const ratio = max > 0 ? Phaser.Math.Clamp(hp / max, 0, 1) : 0;
             bar.setDisplaySize(width * ratio, 14).setVisible(visible && ratio > 0);
@@ -405,7 +575,7 @@ export class GameScene extends Phaser.Scene {
         updateBar(this.playerHpFill, this.run.playerHp, this.run.playerMaxHp, 128);
         this.playerHpText.setText(`${this.run.playerHp} / ${this.run.playerMaxHp}`);
         const hovered = this.run.getEnemy(this.hoveredEnemyId ?? '');
-        const fighting = this.run.mode === 'combat' || this.run.mode === 'defeat';
+        const fighting = this.run.mode === 'combat' || this.run.mode === 'defeat' || this.run.mode === 'boss-reward';
         if (fighting && engine) {
             this.enemyNameText.setText(engine.enemyName);
             updateBar(this.enemyHpFill, engine.enemyHp, engine.enemyMaxHp, 202, showPack);
@@ -417,24 +587,33 @@ export class GameScene extends Phaser.Scene {
             this.enemyHpText.setText(`HP: ${hovered.maxHp}   ATK: ${hovered.damage}`);
             this.enemyAttackText.setText(`DETECTION: ${hovered.detectionRadius}`);
         } else {
-            this.enemyNameText.setText('EXPLORE THE SECTOR');
+            this.enemyNameText.setText(this.run.mode === 'workshop' ? 'SAFE WORKSHOP' : 'EXPLORE THE SECTOR');
             this.enemyHpFill.setVisible(false);
-            this.enemyHpText.setText('Find scrap. Choose your battles.');
-            this.enemyAttackText.setText('Reach X to leave the sector.');
+            this.enemyHpText.setText(this.run.mode === 'workshop' ? 'Craft and prepare your backpack.' : 'Find scrap. Choose your battles.');
+            this.enemyAttackText.setText(this.run.mode === 'workshop' ? 'No automatic healing or recharge.' : 'Reach X to leave the sector.');
         }
         this.shieldText.setText(`SHIELD LAST: ${this.lastTurnLog?.shieldGenerated ?? '—'}`);
         this.hitText.setText(`HIT LAST: ${this.lastTurnLog?.damageTaken ?? '—'}`);
         const status = this.run.mode === 'combat' ? `TURN ${String(this.completedTurns + 1).padStart(2, '0')}`
-            : this.run.mode === 'complete' ? 'DEMO COMPLETE' : this.run.mode === 'defeat' ? 'DEFEAT' : 'EXPLORING';
+            : this.run.mode === 'complete' ? 'DEMO COMPLETE' : this.run.mode === 'defeat' ? 'DEFEAT'
+                : this.run.mode === 'workshop' ? 'WORKSHOP' : this.run.mode === 'boss-reward' ? 'BOSS DEFEATED' : 'EXPLORING';
         this.statusText.setText(status);
         const lines = this.messages.flatMap(message => this.logText.getWrappedText(message));
         this.logText.setText(lines.slice(-4).join('\n'));
-        this.compactSummary?.setVisible(this.compact && !this.backpackView).setText(hovered
-            ? `${hovered.name}\nHP: ${hovered.maxHp}\nATK: ${hovered.damage}\nDETECTION: ${hovered.detectionRadius}`
-            : `${status}\n\nWASD / arrows: move\nSpace: wait\nE: interact\nB: backpack`);
-        this.toggleButton?.setVisible(this.compact).setText(this.backpackView ? 'MAP' : 'BACKPACK')
-            .setColor(cssColor(this.run.mode === 'combat' ? UITheme.colors.disabledText : UITheme.colors.text));
-        if (this.toggleButton?.input) this.toggleButton.input.enabled = this.compact && this.run.mode !== 'combat';
+        this.compactSummary?.setVisible(this.compact && !this.backpackView).setText(this.run.mode === 'workshop'
+            ? 'WORKSHOP\n\nChoose a recipe.\nCollect crafted items\nfrom the bench.\nB: backpack\nWorld paused.'
+            : hovered ? `${hovered.name}\nHP: ${hovered.maxHp}\nATK: ${hovered.damage}\nDETECTION: ${hovered.detectionRadius}`
+                : `${status}\n\nWASD / arrows: move\nSpace: wait\nE: interact\nB: backpack`);
+        const toggleEnabled = this.compact && this.run.mode !== 'combat' && !this.hasOverlay() && !this.activeDrag;
+        this.toggleButton?.setVisible(this.compact).setText(this.backpackView
+            ? this.run.mode === 'workshop' ? 'WORKSHOP' : 'MAP' : 'BACKPACK')
+            .setColor(cssColor(toggleEnabled ? UITheme.colors.text : UITheme.colors.disabledText));
+        if (this.toggleButton?.input) this.toggleButton.input.enabled = toggleEnabled;
+        this.materialText?.setText(`MATERIALS ${this.run.materialUsed} / ${MATERIAL_CAPACITY}\nScrap Metal: ${this.run.materials.metal}    Electronics: ${this.run.materials.electronics}    Fabric: ${this.run.materials.fabric}`);
+        if (this.materialPanel?.input) this.materialPanel.input.enabled = !this.hasOverlay() && !this.activeDrag;
+        this.healButton?.setText(`HEAL +25 (${this.medkits().length})`).setEnabled(this.canHeal());
+        this.healHint?.setText(this.run.playerHp >= this.run.playerMaxHp ? 'Health is full.' : !this.medkits().length ? 'Craft a Medkit.'
+            : this.run.mode === 'combat' ? 'Uses a combat turn.\nEnemy attacks.' : this.run.mode === 'workshop' ? 'Safe use. No turn.' : 'Uses one world turn.');
 
         this.syncVisualItems();
         const { weapons, armors, valid } = this.getSelection();
@@ -443,7 +622,7 @@ export class GameScene extends Phaser.Scene {
         else if (this.isRunFinished()) hint = status;
         else if (this.isProcessingTurn) hint = 'RESOLVING...';
         else if (this.activeDrag) hint = 'FINISH MOVING ITEM';
-        else if (this.run.mode !== 'combat') hint = 'EXPLORING';
+        else if (this.run.mode !== 'combat') hint = this.run.mode === 'workshop' ? 'PREPARE YOUR BACKPACK' : status;
         else if (this.selectionError) hint = this.selectionError;
         else if (!valid || weapons.length > 1 || armors.length > 1) hint = 'INVALID SELECTION';
         else if (!weapons.length) hint = 'SELECT A WEAPON';
@@ -452,9 +631,16 @@ export class GameScene extends Phaser.Scene {
         this.endTurnLabel.setText(this.isRunFinished() || this.hasCombatError ? 'NEW RUN' : 'END TURN');
         this.refreshConsumerPowerVisuals();
         this.refreshButton();
-        this.mapView?.setVisible(!this.compact || !this.backpackView);
+        this.drawGrid();
+        const groundContext = buildGroundPanelContent(this.run);
+        this.groundTitle?.setText(groundContext.title);
+        this.groundStatus?.setText(groundContext.status);
+        this.mapView?.setVisible(this.run.mode !== 'workshop' && (!this.compact || !this.backpackView));
         this.mapView?.refresh(this.run, this.exploration, this.hoveredEnemyId,
-            !this.activeDrag && !this.isProcessingTurn && !this.hasCombatError);
+            !this.activeDrag && !this.isProcessingTurn && !this.hasCombatError && !this.hasOverlay());
+        this.workshopView?.setVisible(this.run.mode === 'workshop' && (!this.compact || !this.backpackView));
+        this.refreshWorkshop();
+        this.runOverlay?.refresh(this.run);
     }
 
     private appendMessage(message: string): void {
@@ -465,7 +651,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     private canChangeInventory(): boolean {
-        return !this.isRunFinished() && !this.isProcessingTurn && !this.hasCombatError;
+        return !this.isRunFinished() && !this.isProcessingTurn && !this.hasCombatError && !this.hasOverlay()
+            && (this.run.mode === 'exploration' || this.run.mode === 'combat' || this.run.mode === 'workshop');
     }
 
     private isPlacedItem(item: Item): boolean {
@@ -551,6 +738,7 @@ export class GameScene extends Phaser.Scene {
     }
 
     private cancelGestures(): void {
+        this.materialPointerId = null;
         for (const visual of this.visualItemsMap.values()) {
             visual.cancelGesture();
         }
@@ -591,11 +779,15 @@ export class GameScene extends Phaser.Scene {
     }
 
     private resolveTurn(): void {
+        this.resolveCombatAction();
+    }
+
+    private resolveCombatAction(consumableId?: string): void {
         if (this.run.mode !== 'combat' || !this.canChangeInventory() || this.activeDrag || this.time.now < this.nextAllowedTurnAt) {
             return;
         }
         const { weapons, armors, valid } = this.getSelection();
-        if (!valid || weapons.length !== 1 || armors.length > 1) {
+        if (!valid || (!consumableId && weapons.length !== 1) || armors.length > 1) {
             this.selectionError = 'SELECT ONE WEAPON\nAND AT MOST ONE ARMOR';
             this.appendMessage('Turn cancelled: select exactly one placed weapon and at most one placed armor.');
             this.updateCombatUI();
@@ -607,12 +799,16 @@ export class GameScene extends Phaser.Scene {
         this.updateCombatUI();
         const batteryIds = this.inventory.items.filter(item => item.type === 'battery').map(item => item.id);
         try {
-            const log = this.run.processCombatTurn(weapons[0].id, armors[0]?.id ?? null);
+            const log = consumableId
+                ? this.run.processCombatAction({ type: 'heal', consumableId, armorId: armors[0]?.id ?? null })
+                : this.run.processCombatTurn(weapons[0].id, armors[0]?.id ?? null);
             this.lastTurnLog = log;
             this.completedTurns++;
             this.nextAllowedTurnAt = this.time.now + 250;
             const removedNames = this.synchronizeTurnVisuals(batteryIds);
-            this.appendMessage(`TURN ${String(this.completedTurns).padStart(2, '0')}: ${log.weaponUsedName} — DAMAGE ${log.damageDealt}`);
+            this.appendMessage(log.actionType === 'heal'
+                ? `TURN ${String(this.completedTurns).padStart(2, '0')}: ${log.consumableUsedName} — HEALED ${log.healingRestored} HP`
+                : `TURN ${String(this.completedTurns).padStart(2, '0')}: ${log.weaponUsedName} — DAMAGE ${log.damageDealt}`);
             this.appendMessage(`ARMOR: ${log.armorUsedName ?? 'NONE'} — SHIELD ${log.shieldGenerated}`);
             this.appendMessage(`HIT TAKEN: ${log.damageTaken}`);
             for (const name of removedNames) {
@@ -626,7 +822,7 @@ export class GameScene extends Phaser.Scene {
             }
             if (log.isEnemyDead && !log.isPlayerDead) {
                 this.appendMessage('Victory. Loot is on your current tile.');
-                if (this.compact) this.backpackView = false;
+                if (this.compact && !this.hasOverlay()) this.backpackView = false;
             }
         } catch (error) {
             this.hasCombatError = true;
@@ -647,13 +843,16 @@ export class GameScene extends Phaser.Scene {
     }
 
     private canUsePrimaryButton(): boolean {
-        return !this.activeDrag && !this.isProcessingTurn &&
+        return !this.activeDrag && !this.isProcessingTurn && !this.hasOverlay() &&
             (this.isRunFinished() || this.hasCombatError || this.canEndTurn());
     }
 
     public startNewRun(seed?: number): void {
+        if (this.hasOverlay()) return;
         this.cancelGestures();
         this.hideTooltip();
+        this.runOverlay?.setKind(null);
+        if (this.workshopView) this.workshopView.selectedRecipe = RECIPES[0].id;
         for (const visual of this.visualItemsMap.values()) visual.destroy();
         const values = new Uint32Array(1);
         if (seed === undefined) globalThis.crypto.getRandomValues(values);
@@ -682,22 +881,31 @@ export class GameScene extends Phaser.Scene {
         const compact = Math.min(window.innerWidth / 1248, window.innerHeight / 640) < 0.9;
         this.cancelGestures();
         this.hideTooltip();
-        if (compact !== this.compact) this.backpackView = this.run.mode === 'combat';
+        if (compact !== this.compact) this.backpackView = this.run.mode === 'combat' || this.run.mode === 'boss-reward';
         this.compact = compact;
         const width = compact ? 800 : 1248, height = compact ? 600 : 640;
         if (this.scale.width !== width || this.scale.height !== height) this.scale.setGameSize(width, height);
         this.mapView.setLayout(compact);
+        this.workshopView?.setLayout(compact);
         this.updateCombatUI();
     }
 
     public toggleBackpack(): void {
-        if (!this.compact || this.run.mode === 'combat' || this.activeDrag || this.isProcessingTurn) return;
+        if (!this.compact || this.run.mode === 'combat' || this.activeDrag || this.isProcessingTurn || this.hasOverlay()) return;
         this.hideTooltip();
         this.backpackView = !this.backpackView;
         this.updateCombatUI();
     }
 
     private handleWorldKey(event: KeyboardEvent): void {
+        if (this.hasOverlay()) {
+            if (event.key === 'Escape' && this.runOverlay.kind === 'materials') {
+                event.preventDefault();
+                this.runOverlay.setKind(null);
+                this.updateCombatUI();
+            }
+            return;
+        }
         if (event.repeat || !this.tooltipFocused || this.activeDrag || this.isProcessingTurn) return;
         const key = event.key.toLowerCase();
         if (key === 'b') { event.preventDefault(); this.toggleBackpack(); return; }
@@ -724,9 +932,9 @@ export class GameScene extends Phaser.Scene {
         if (type) this.performWorldAction({ type });
     }
 
-    public performWorldAction(action: ExplorationAction): void {
-        if (this.activeDrag || this.isProcessingTurn || this.hasCombatError || !this.tooltipFocused
-            || (this.compact && this.backpackView)) return;
+    public performWorldAction(action: ExplorationAction, fromCommonHud = false): void {
+        if (this.activeDrag || this.isProcessingTurn || this.hasCombatError || !this.tooltipFocused || this.hasOverlay()
+            || (this.compact && this.backpackView && !fromCommonHud)) return;
         this.isProcessingTurn = true;
         this.hideTooltip();
         try {
@@ -753,8 +961,8 @@ export class GameScene extends Phaser.Scene {
     }
 
     private changeGroundPage(delta: number): void {
-        if (this.activeDrag || this.run.mode === 'combat') return;
-        const items = this.run.itemsAtHero();
+        if (this.activeDrag || this.hasOverlay() || this.run.mode === 'combat') return;
+        const items = this.run.looseLoot();
         if (!items.length) return;
         this.hideTooltip();
         this.groundPage = Phaser.Math.Clamp(this.groundPage + delta, 0, items.length - 1);
@@ -767,32 +975,43 @@ export class GameScene extends Phaser.Scene {
         const ids = new Set(models.map(item => item.id));
         for (const [id, visual] of this.visualItemsMap) if (!ids.has(id)) visual.destroy();
         for (const model of models) if (!this.visualItemsMap.has(model.id)) this.addItemVisual(model);
-        const key = `${this.run.sectorIndex}:${this.run.hero.x},${this.run.hero.y}`;
+        const key = `${this.run.mode === 'workshop' ? 'bench' : 'ground'}:${this.run.sectorIndex}:${this.run.hero.x},${this.run.hero.y}`;
         if (this.groundPageKey !== key) { this.groundPage = 0; this.groundPageKey = key; }
-        const ground = this.run.itemsAtHero();
+        const ground = this.run.looseLoot();
         this.groundPage = Phaser.Math.Clamp(this.groundPage, 0, Math.max(0, ground.length - 1));
-        const groundItem = ground[this.groundPage];
+        const entry = ground[this.groundPage];
+        const groundItem = entry?.kind === 'item' ? entry.item : null;
         const showPack = !this.compact || this.backpackView;
-        const showGround = showPack && this.run.mode !== 'combat';
+        const showGround = showPack && this.run.mode !== 'combat' && this.run.mode !== 'boss-reward';
         for (const visual of this.visualItemsMap.values()) {
             const placed = this.inventory.items.includes(visual.itemModel);
             const visible = showPack && (placed || this.activeDrag === visual ||
                 (showGround && visual.itemModel === groundItem));
             visual.setVisible(visible);
             visual.setInteractionEnabled(visible && this.canChangeInventory() &&
-                (placed || this.run.mode === 'exploration' || this.activeDrag === visual)
+                (placed || this.run.mode === 'exploration' || this.run.mode === 'workshop' || this.activeDrag === visual)
                 && (!this.activeDrag || this.activeDrag === visual));
         }
         this.groundCounter.setText(`${ground.length ? this.groundPage + 1 : 0} / ${ground.length}`);
-        this.groundEmptyText.setText(this.run.mode === 'combat' ? 'GROUND LOCKED\nDURING COMBAT' : 'NOTHING HERE')
-            .setVisible(showPack && (!ground.length || this.run.mode === 'combat'));
+        const locked = this.run.mode === 'combat' || this.run.mode === 'boss-reward';
+        this.groundEmptyText.setText(locked ? 'GROUND LOCKED\nDURING COMBAT' : 'NOTHING HERE')
+            .setVisible(showPack && (!ground.length || locked));
+        const materialVisible = showGround && entry?.kind === 'material';
+        this.groundMaterialText.setVisible(materialVisible);
+        this.takeMaterialButton.setVisible(materialVisible);
+        if (entry?.kind === 'material') {
+            this.groundMaterialText.setText(`${MATERIAL_NAMES[entry.material]}\n×${entry.amount}\n${this.run.materialUsed} / ${MATERIAL_CAPACITY} carried`);
+            this.takeMaterialButton.setEnabled(!this.hasOverlay() && !this.activeDrag && !this.isProcessingTurn &&
+                this.run.materialUsed < MATERIAL_CAPACITY &&
+                (this.run.mode === 'exploration' || this.run.mode === 'workshop'));
+        }
         for (const [button, available] of [[this.previousGround, this.groundPage > 0],
             [this.nextGround, this.groundPage + 1 < ground.length]] as const) {
-            const enabled = showPack && this.run.mode !== 'combat' && !this.activeDrag && available;
+            const enabled = showGround && !this.hasOverlay() && !this.activeDrag && !this.isProcessingTurn && available;
             button.input!.enabled = enabled;
             button.setColor(cssColor(enabled ? UITheme.colors.text : UITheme.colors.disabledText));
         }
-        if (this.endTurnButton.input) this.endTurnButton.input.enabled = showPack;
+        if (this.endTurnButton.input) this.endTurnButton.input.enabled = showPack && !this.hasOverlay();
     }
 
     private addItemVisual(itemModel: Item): void {
@@ -801,7 +1020,7 @@ export class GameScene extends Phaser.Scene {
             && this.run.draggedItem !== itemModel) this.run.putOnGround(itemModel);
         const visual = new ItemVisual(this, itemModel, this.cellSize, {
             isInteractionAllowed: () => this.canChangeInventory() && (!this.compact || this.backpackView)
-                && (this.inventory.items.includes(itemModel) || this.run.mode === 'exploration'
+                && (this.inventory.items.includes(itemModel) || this.run.mode === 'exploration' || this.run.mode === 'workshop'
                     || this.activeDrag?.itemModel === itemModel)
                 && (!this.activeDrag || this.activeDrag.itemModel === itemModel),
             isPoweredEffectAvailable: item => canUsePoweredEffect(this.inventory, item),
@@ -851,10 +1070,11 @@ export class GameScene extends Phaser.Scene {
         if (!cancelled && this.inventory.placeItem(item, gridX, gridY)) {
             this.run.draggedItem = null;
             visual.setPosition(this.gridStartX + gridX * this.cellSize, this.gridStartY + gridY * this.cellSize);
-        } else if (!cancelled && this.run.mode === 'exploration' &&
-            pointer.x >= 562 && pointer.x < 764 && pointer.y >= 246 && pointer.y < 408) {
+        } else if (!cancelled && (this.run.mode === 'exploration' || this.run.mode === 'workshop') &&
+            pointer.x >= UITheme.ground.x && pointer.x < UITheme.ground.x + UITheme.ground.width &&
+            pointer.y >= UITheme.ground.y && pointer.y < UITheme.ground.y + UITheme.ground.height) {
             this.run.putOnGround(item);
-            this.groundPage = this.run.itemsAtHero().findIndex(candidate => candidate.id === item.id);
+            this.groundPage = this.run.looseLoot().findIndex(candidate => candidate.kind === 'item' && candidate.item === item);
             visual.resetPosition();
         } else {
             visual.restoreOrientation(origin.orientation);
@@ -864,7 +1084,7 @@ export class GameScene extends Phaser.Scene {
                 visual.setPosition(this.gridStartX + origin.x * this.cellSize, this.gridStartY + origin.y * this.cellSize);
             } else {
                 this.run.putOnGround(item);
-                this.groundPage = this.run.itemsAtHero().findIndex(candidate => candidate.id === item.id);
+                this.groundPage = this.run.looseLoot().findIndex(candidate => candidate.kind === 'item' && candidate.item === item);
                 visual.resetPosition();
             }
         }
@@ -879,11 +1099,21 @@ export class GameScene extends Phaser.Scene {
     }
 
     private drawGrid(): void {
-        const graphics = this.add.graphics();
-        this.backpackObjects.push(graphics);
-        graphics.lineStyle(UITheme.borders.grid, UITheme.colors.border);
-        for (let row = 0; row < this.inventory.height; row++) {
-            for (let col = 0; col < this.inventory.width; col++) {
+        if (!this.gridGraphics?.active) {
+            this.gridGraphics = this.add.graphics().setDepth(0);
+            this.backpackObjects.push(this.gridGraphics);
+        }
+        const graphics = this.gridGraphics.clear();
+        for (let row = 0; row < 6; row++) {
+            for (let col = 0; col < 6; col++) {
+                const x = this.gridStartX + col * this.cellSize, y = this.gridStartY + row * this.cellSize;
+                const locked = col >= this.inventory.width || row >= this.inventory.height;
+                if (locked) {
+                    graphics.fillStyle(UITheme.colors.background).fillRect(x, y, 50, 50);
+                    graphics.lineStyle(1, UITheme.colors.border, 0.45).lineBetween(x + 8, y + 8, x + 42, y + 42)
+                        .lineBetween(x + 42, y + 8, x + 8, y + 42);
+                }
+                graphics.lineStyle(UITheme.borders.grid, UITheme.colors.border, locked ? 0.45 : 1);
                 graphics.strokeRect(this.gridStartX + col * this.cellSize,
                     this.gridStartY + row * this.cellSize, this.cellSize, this.cellSize);
             }

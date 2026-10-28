@@ -1,4 +1,4 @@
-export type ItemType = 'weapon' | 'armor' | 'battery' | 'wire' | 'transformer';
+export type ItemType = 'weapon' | 'armor' | 'battery' | 'wire' | 'transformer' | 'component' | 'consumable';
 export type VoltageType = 'low' | 'high';
 export type TransformDirection = 'low-to-high' | 'high-to-low' | null;
 
@@ -39,6 +39,8 @@ export interface ItemConfig {
     inputDir?: DirectionVector;
     outputDir?: DirectionVector;
     connectionPorts?: DirectionVector[];
+    quarterTurns?: number;
+    healingAmount?: number;
 }
 
 export class Item {
@@ -71,6 +73,8 @@ export class Item {
     public inputDir: DirectionVector;
     public outputDir: DirectionVector;
     public connectionPorts: DirectionVector[];
+    public quarterTurns: number;
+    public healingAmount: number;
 
     constructor(config: ItemConfig) {
         this.id = config.id;
@@ -96,6 +100,8 @@ export class Item {
         this.energyCost = config.energyCost ?? 0;
         this.energyCostMultiplier = config.energyCostMultiplier ?? 1;
         this.isEnergySource = config.isEnergySource ?? (this.type === 'battery');
+        this.quarterTurns = ((Math.trunc(config.quarterTurns ?? 0) % 4) + 4) % 4;
+        this.healingAmount = Math.max(0, config.healingAmount ?? 0);
         this.inputDir = { ...(config.inputDir ?? { x: -1, y: 0 }) };
         this.outputDir = { ...(config.outputDir ?? { x: 1, y: 0 }) };
         this.connectionPorts = (config.connectionPorts ?? (
@@ -104,6 +110,7 @@ export class Item {
     }
 
     public rotate(): void {
+        this.quarterTurns = (this.quarterTurns + 1) % 4;
         [this.width, this.height] = [this.height, this.width];
 
         const rotateDirection = (direction: DirectionVector): DirectionVector => ({

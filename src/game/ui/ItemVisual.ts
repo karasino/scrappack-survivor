@@ -23,13 +23,14 @@ interface ItemGesture {
     rotated: boolean;
 }
 
-const GROUND = { x: 562, y: 246, width: 202, height: 162 };
+const GROUND = UITheme.ground;
 
 export class ItemVisual {
     public readonly itemModel: Item;
     public readonly rect: Phaser.GameObjects.Rectangle;
     public readonly text: Phaser.GameObjects.Text;
     public readonly image: Phaser.GameObjects.Image | null;
+    public readonly powerGraphics: Phaser.GameObjects.Graphics;
 
     private readonly selectionGraphics: Phaser.GameObjects.Graphics;
     private readonly connectionGraphics: Phaser.GameObjects.Graphics;
@@ -40,7 +41,6 @@ export class ItemVisual {
     private isDragging = false;
     private isVisible = true;
     private interactionEnabled = true;
-    private artAngle = 0;
     private readonly artHover = { value: 1 };
     private hoverTween: Phaser.Tweens.Tween | null = null;
     private readonly imagePadding: number;
@@ -59,10 +59,13 @@ export class ItemVisual {
             startX, startY, itemModel.width * cellSize, itemModel.height * cellSize, UITheme.colors.itemBackground
         ).setOrigin(0).setInteractive({ draggable: true });
         this.selectionGraphics = scene.add.graphics();
+        this.powerGraphics = scene.add.graphics();
         this.connectionGraphics = scene.add.graphics().setDepth(UITheme.layers.connections);
         this.image = presentation && scene.textures.exists(presentation.textureKey)
             ? scene.add.image(startX, startY, presentation.textureKey).setOrigin(0.5) : null;
-        this.text = scene.add.text(startX + 5, startY + 5, itemModel.name, {
+        const label = itemModel.type === 'consumable' ? '+25 HP'
+            : itemModel.type === 'component' ? itemModel.definitionId === 'power_core' ? 'CORE' : 'MECH' : itemModel.name;
+        this.text = scene.add.text(startX + 5, startY + 5, label, {
             fontSize: `${UITheme.fonts.itemLabel}px`, color: cssColor(UITheme.colors.text),
             fontFamily: UITheme.fonts.family
         }).setVisible(this.image === null);
@@ -139,6 +142,7 @@ export class ItemVisual {
             this.hoverTween = null;
             this.image?.destroy();
             this.selectionGraphics.destroy();
+            this.powerGraphics.destroy();
             this.connectionGraphics.destroy();
             this.text.destroy();
             callbacks.onDestroy?.(this);
@@ -190,7 +194,6 @@ export class ItemVisual {
         }
         this.gesture.rotated = true;
         this.itemModel.rotate();
-        this.artAngle = (this.artAngle + 90) % 360;
         this.updateSize();
         this.refresh();
     }
@@ -200,20 +203,23 @@ export class ItemVisual {
         if (this.rect.input?.hitArea instanceof Phaser.Geom.Rectangle) {
             this.rect.input.hitArea.setSize(this.rect.width, this.rect.height);
         }
-        this.text.setWordWrapWidth(this.rect.width - 10, true)
+        const consumerPlaceholder = this.image === null && (this.itemModel.type === 'weapon' || this.itemModel.type === 'armor');
+        const reserved = consumerPlaceholder ? UITheme.item.powerBadge.width + UITheme.item.powerBadge.margin : 0;
+        this.text.setWordWrapWidth(Math.max(8, this.rect.width - 10 - reserved), true)
             .setMaxLines(Math.max(1, Math.floor((this.rect.height - 10) / (UITheme.fonts.itemLabel + 2))));
         this.updateImage();
     }
 
     private updateImage(): void {
         if (!this.image) return;
-        const quarterTurn = this.artAngle % 180 !== 0;
+        const artAngle = this.itemModel.quarterTurns * 90;
+        const quarterTurn = this.itemModel.quarterTurns % 2 !== 0;
         const width = quarterTurn ? this.image.height : this.image.width;
         const height = quarterTurn ? this.image.width : this.image.height;
         const scale = Math.min(Math.max(0, this.rect.width - this.imagePadding * 2) / width,
             Math.max(0, this.rect.height - this.imagePadding * 2) / height);
         this.image.setPosition(this.rect.x + this.rect.width / 2, this.rect.y + this.rect.height / 2)
-            .setAngle(this.artAngle).setScale(scale * this.artHover.value);
+            .setAngle(artAngle).setScale(scale * this.artHover.value);
     }
 
     private animateImageHover(hovered: boolean): void {
@@ -246,6 +252,7 @@ export class ItemVisual {
         this.image?.setDepth(depth + 1);
         this.selectionGraphics.setDepth(depth + 2);
         this.text.setDepth(depth + 3);
+        this.powerGraphics.setDepth(depth + 4);
     }
 
     public setInteractionEnabled(enabled: boolean): void {
@@ -270,12 +277,13 @@ export class ItemVisual {
         this.image?.setVisible(visible);
         this.text.setVisible(visible && this.image === null);
         this.selectionGraphics.setVisible(visible);
+        this.powerGraphics.setVisible(visible);
         this.connectionGraphics.setVisible(visible);
         this.setInteractionEnabled(this.interactionEnabled);
     }
 
     public getOrientation(): number {
-        return this.artAngle / 90;
+        return this.itemModel.quarterTurns;
     }
 
     public restoreOrientation(turns: number): void {
@@ -284,7 +292,6 @@ export class ItemVisual {
         for (let i = 0; i < rotations; i++) {
             this.itemModel.rotate();
         }
-        this.artAngle = target * 90;
         this.updateSize();
         this.refresh();
     }
@@ -294,6 +301,7 @@ export class ItemVisual {
         this.text.setPosition(x + 5, y + 5);
         this.updateImage();
         this.refreshSelection();
+        this.refreshPowerIndicator();
         this.refreshConnections();
     }
 
@@ -306,12 +314,28 @@ export class ItemVisual {
 
     private refreshSelection(): void {
         this.selectionGraphics.clear();
-        if (this.itemModel.isSelectedForTurn) {
+        if (this.itemModel.isSelectedForTurn && (this.itemModel.type === 'weapon' || this.itemModel.type === 'armor')) {
             const { x, y, width, height } = this.rect;
-            const offset = UITheme.borders.selectionOffset;
+            const inset = UITheme.borders.selectionInset;
             this.selectionGraphics.lineStyle(UITheme.borders.selection, UITheme.colors.selected)
-                .strokeRect(x - offset, y - offset, width + offset * 2, height + offset * 2);
+                .strokeRect(x + inset, y + inset, Math.max(0, width - inset * 2), Math.max(0, height - inset * 2));
         }
+    }
+
+    private refreshPowerIndicator(): void {
+        const graphics = this.powerGraphics.clear();
+        const consumer = this.itemModel.type === 'weapon' || this.itemModel.type === 'armor';
+        if (!consumer || !this.callbacks.isPoweredEffectAvailable?.(this.itemModel)) return;
+        const badge = UITheme.item.powerBadge;
+        const x = this.rect.x + this.rect.width - badge.margin - badge.width;
+        const y = this.rect.y + badge.margin;
+        graphics.fillStyle(UITheme.colors.background).fillRect(x, y, badge.width, badge.height);
+        const left = x + (badge.width - badge.boltWidth) / 2;
+        const top = y + (badge.height - badge.boltHeight) / 2;
+        graphics.fillStyle(UITheme.colors.powered).beginPath()
+            .moveTo(left + 5, top).lineTo(left, top + 7).lineTo(left + 4, top + 7)
+            .lineTo(left + 3, top + 12).lineTo(left + 8, top + 5).lineTo(left + 4, top + 5)
+            .closePath().fillPath();
     }
 
     private refreshConnections(): void {
@@ -352,18 +376,17 @@ export class ItemVisual {
     }
 
     public refresh(): void {
-        const isConsumer = this.itemModel.type === 'weapon' || this.itemModel.type === 'armor';
+        if (this.rect.width !== this.itemModel.width * this.cellSize || this.rect.height !== this.itemModel.height * this.cellSize)
+            this.updateSize();
+        else this.updateImage();
         const isConductor = this.itemModel.type === 'wire' || this.itemModel.type === 'transformer';
         const fillAlpha = this.isDragging ? UITheme.opacity.draggedItem
             : this.itemModel.isSelectedForTurn ? UITheme.opacity.selectedItem : UITheme.opacity.item;
         this.rect.setFillStyle(isConductor && this.itemModel.isPowered
             ? UITheme.colors.poweredConductor : UITheme.colors.itemBackground, fillAlpha);
-        if (isConsumer && this.callbacks.isPoweredEffectAvailable?.(this.itemModel)) {
-            this.rect.setStrokeStyle(UITheme.borders.powered, UITheme.colors.powered);
-        } else {
-            this.rect.setStrokeStyle();
-        }
+        this.rect.setStrokeStyle();
         this.refreshSelection();
+        this.refreshPowerIndicator();
         this.refreshConnections();
     }
 

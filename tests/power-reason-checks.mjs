@@ -74,7 +74,7 @@ export async function runPowerReasonChecks({ evaluate, read, check, mouse, click
     await evaluate("s.visualItemsMap.get('A').itemModel.charge=4");
     await waitFor('reasonLines().length===0','sufficient charge clears warning');
     await check(activeLine,'► Powered damage: 22','sufficient charge highlights powered damage');
-    await check("s.visualItemsMap.get('gun').rect.isStroked",true,'existing power frame remains consistent');
+    await check("(s.visualItemsMap.get('gun').powerGraphics.commandBuffer.length>0)",true,'power indicator remains consistent');
     await evaluate("s.visualItemsMap.get('A').itemModel.charge=1");
     await waitFor(hasReason(weaponShortage),'warning returns after charge change');
     await check("s.visualItemsMap.get('gun').itemModel.connectedBatteries.length",1,'preview leaves connections unchanged');

@@ -65,6 +65,21 @@ export class Inventory {
         return true;
     }
 
+    /** Opens cells to the right/bottom without replacing items or changing coordinates. */
+    public expandTo(width: number, height: number): boolean {
+        if (!Number.isInteger(width) || !Number.isInteger(height) || width < this.width ||
+            height < this.height || width > 6 || height > 6) {
+            return false;
+        }
+        for (const row of this.grid) {
+            while (row.length < width) row.push(null);
+        }
+        while (this.grid.length < height) this.grid.push(Array(width).fill(null));
+        this.width = width;
+        this.height = height;
+        return true;
+    }
+
     public updatePowerGrid(): void {
         const itemsById = new Map<string, Item>();
         for (const item of this.items) {

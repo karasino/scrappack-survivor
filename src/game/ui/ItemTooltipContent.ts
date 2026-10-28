@@ -68,6 +68,16 @@ export function buildItemTooltipContent(item: Item, powerPreview: PoweredEffectP
             break;
         case 'wire':
             break;
+        case 'component':
+            content.lines = [{ text: 'Used in workshop recipes.' }, { text: 'Carry in your backpack to craft.' }];
+            break;
+        case 'consumable':
+            content.lines = [line('Restores HP', item.healingAmount),
+                { text: 'Use HEAL while carried in the backpack.' },
+                { text: 'Combat: replaces your attack.' },
+                { text: 'Exploration: costs one world turn.' },
+                { text: 'Workshop: no world turn.' }];
+            break;
     }
     return content;
 }

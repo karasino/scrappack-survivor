@@ -13,6 +13,8 @@ import { runPowerReasonChecks } from './power-reason-checks.mjs';
 import { captureVisualScenarios } from './visual-scenarios.mjs';
 import { runVisualPrototypeChecks } from './visual-prototype-checks.mjs';
 import { runExplorationChecks } from './exploration-checks.mjs';
+import { runCraftingChecks } from './crafting-checks.mjs';
+import { runItemFeedbackChecks } from './ui-feedback-checks.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'scrappack-ui-'));
 const origin = 'http://127.0.0.1:4175';
@@ -101,6 +103,8 @@ try {
             const { Item } = await import('/src/game/core/Item.ts');
             const { LootTable } = await import('/src/game/core/LootTable.ts');
             const { CombatEngine } = await import('/src/game/core/CombatEngine.ts');
+            const { UITheme } = await import('/src/game/ui/UITheme.ts');
+            globalThis.uiTheme=UITheme;
             for (let i = 0; i < 100 && !game.scene.isActive('GameScene'); i++) {
                 await new Promise(r => setTimeout(r, 20));
             }
@@ -127,6 +131,9 @@ try {
             };
             globalThis.reset = async () => {
                 await freshRun();
+                // Legacy combat fixtures exercise the complete 6 × 6 network.
+                // Actual new runs remain restricted to their real 4 × 4 start.
+                s.inventory.expandTo(6,6);
                 for(const v of Array.from(s.visualItemsMap.values()))v.destroy();
                 for(const item of [...s.inventory.items])s.inventory.removeItem(item.id);
                 s.run.groundItems?.clear();
@@ -159,6 +166,12 @@ try {
         const frame = () => delay(35);
         const restart = () => evaluate('reset()');
 
+        if (process.argv.includes('--crafting-only')) {
+            await runCraftingChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+            await cdp('Target.closeTarget',{targetId});
+            continue;
+        }
+
         if (process.argv.includes('--exploration-only')) {
             await runExplorationChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
             await cdp('Target.closeTarget',{targetId});
@@ -170,6 +183,7 @@ try {
 
         if (process.argv.includes('--visual-only')) {
             await runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+            await runItemFeedbackChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
             await cdp('Target.closeTarget',{targetId});
             continue;
         }
@@ -181,8 +195,8 @@ try {
         await click(663, 544);
         await check('s.completedTurns', 0, 'disabled turn');
         await check("s.children.getAll().some(o=>o.type==='Text'&&o.text==='SCAVENGE SCRAP')", false, 'test scavenge removed');
-        await check(`Array.from(s.visualItemsMap.values()).every(v => v.rect.x >= 562 && v.rect.y >= 246
-            && v.rect.x+v.rect.width <= 764 && v.rect.y+v.rect.height <= 408)`, true, 'ground bounds');
+        await check(`Array.from(s.visualItemsMap.values()).every(v => v.rect.x >= uiTheme.ground.x && v.rect.y >= uiTheme.ground.y
+            && v.rect.x+v.rect.width <= uiTheme.ground.x+uiTheme.ground.width && v.rect.y+v.rect.height <= uiTheme.ground.y+uiTheme.ground.height)`, true, 'ground bounds');
         await restart();
 
         await evaluate(`seed([{type:'weapon',id:'a',x:0,y:0},{type:'weapon',id:'b',x:0,y:1},
@@ -229,7 +243,7 @@ try {
         await mouse('mouseMoved',700,350);
         await mouse('mouseReleased',700,350);
         await check(`(() => {const v=s.visualItemsMap.get('a');return {placed:s.inventory.items.length,
-            selected:v.itemModel.isSelectedForTurn,inside:v.rect.x>=562&&v.rect.y>=246&&v.rect.x+v.rect.width<=764&&v.rect.y+v.rect.height<=408}})()`,
+            selected:v.itemModel.isSelectedForTurn,inside:v.rect.x>=uiTheme.ground.x&&v.rect.y>=uiTheme.ground.y&&v.rect.x+v.rect.width<=uiTheme.ground.x+uiTheme.ground.width&&v.rect.y+v.rect.height<=uiTheme.ground.y+uiTheme.ground.height}})()`,
         {placed:1,selected:false,inside:false}, 'combat ground drop restores original inventory position');
         const lootPoint = await read(`(() => {const r=s.visualItemsMap.get('a').rect;return [r.x+10,r.y+10]})()`);
         await click(...lootPoint);
@@ -271,7 +285,7 @@ try {
             {type:'armor',id:'armor',x:1,y:3}])`);
         await click(325,175);
         await click(275,325);
-        await check(`(() => {const v=s.visualItemsMap.get('a');return [v.rect.isStroked,v.selectionGraphics.commandBuffer.length>0,v.rect.fillAlpha]})()`,[true,true,1],'power and selection coexist');
+        await check(`(() => {const v=s.visualItemsMap.get('a');return [v.rect.isStroked,v.powerGraphics.commandBuffer.length>0,v.selectionGraphics.commandBuffer.length>0,v.rect.fillAlpha]})()`,[false,true,true,1],'power indicator and selection coexist');
         await click(663,544);
         await check(`({enemy:s.combatEngine.enemyHp,hp:s.combatEngine.playerHp,shield:s.shieldText.text,
             high:s.inventory.items.find(i=>i.id==='high').charge,low:s.inventory.items.find(i=>i.id==='low').charge})`,
@@ -321,7 +335,7 @@ try {
         }
 
         await evaluate(`seed([{type:'weapon',id:'a',x:0,y:0}]);globalThis.calls=0;
-            s.combatEngine.processTurn=()=>{calls++;s.combatEngine.playerHp=73;s.inventory.removeItem('a');throw Error('Injected partial failure')}`);
+            s.combatEngine.processAction=()=>{calls++;s.combatEngine.playerHp=73;s.inventory.removeItem('a');throw Error('Injected partial failure')}`);
         await click(225,175);
         await click(663,544);
         await evaluate('s.resolveTurn()');
@@ -345,6 +359,7 @@ try {
         await runEnergyPlanChecks({ evaluate,read,check,mouse,click,restart,renderer });
         await runPowerReasonChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
         await runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+        await runItemFeedbackChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
 
         const listeners = await read(`({children:s.children.length,up:s.input.listenerCount('pointerup'),
             move:s.input.listenerCount('pointermove'),rotate:s.input.keyboard.listenerCount('keydown-R'),

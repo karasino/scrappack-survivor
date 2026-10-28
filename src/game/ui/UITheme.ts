@@ -33,10 +33,11 @@ export const UITheme = {
         logLine: 15,
         hintLine: 18
     },
-    borders: { panel: 1, grid: 1, powered: 1, selection: 2, selectionOffset: 3, arrow: 2 },
+    borders: { panel: 1, grid: 1, powered: 1, selection: 2, selectionInset: 2, arrow: 2 },
     opacity: { item: 0.85, selectedItem: 1, draggedItem: 0.6 },
     durations: { buttonHover: 120, tooltipDelay: 300, tooltipFade: 80, itemHover: 100 },
-    item: { padding: 4, hoverScale: 1.03 },
+    item: { padding: 4, hoverScale: 1.03, powerBadge: { margin: 4, width: 14, height: 16, boltWidth: 8, boltHeight: 12 } },
+    ground: { x: 562, y: 272, width: 202, height: 136 },
     tooltip: { width: 280, padding: 12, cursorOffset: 16, viewportMargin: 8, chargeHeight: 8 },
     layers: { item: 10, draggedItem: 30, connections: 35, hud: 100, tooltip: 200 }
 } as const;

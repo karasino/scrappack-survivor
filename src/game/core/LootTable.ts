@@ -27,5 +27,17 @@ export const LootTable: Omit<ItemConfig, 'id'>[] = [
         definitionId: 'makeshift_vest', name: 'Makeshift Vest', type: 'armor', width: 2, height: 2,
         color: 0x008080, requiredVoltage: 'low', baseArmor: 2, poweredArmor: 8,
         energyCost: 1
+    },
+    {
+        definitionId: 'power_core', name: 'Power Core', type: 'component', width: 1, height: 1,
+        color: 0x80b4a2
+    },
+    {
+        definitionId: 'precision_mechanism', name: 'Precision Mechanism', type: 'component', width: 1, height: 1,
+        color: 0xc9aa72
+    },
+    {
+        definitionId: 'medkit', name: 'Medkit', type: 'consumable', width: 1, height: 1,
+        color: 0xb9827c, healingAmount: 25
     }
 ];

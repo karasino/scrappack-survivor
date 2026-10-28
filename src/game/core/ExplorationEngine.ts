@@ -1,15 +1,16 @@
 import type { EncounterInitiator, RunState, WorldEnemy } from './RunState';
 import { reachableDistances } from './GridTraversal';
-import { SECTOR_DEFINITIONS, WORLD_DIRECTIONS, worldKey } from './SectorDefinitions';
+import { WORLD_DIRECTIONS, worldKey } from './SectorDefinitions';
 import type { WorldPosition } from './SectorDefinitions';
 
 export type ExplorationAction =
     { type: 'move'; dx: number; dy: number } |
-    { type: 'wait' } | { type: 'search' } | { type: 'exit' };
+    { type: 'wait' } | { type: 'search' } | { type: 'exit' } |
+    { type: 'heal'; itemId: string } | { type: 'heal-station' };
 
 export interface ExplorationEvent {
     type: 'hero-moved' | 'enemy-moved' | 'waited' | 'loot-opened' |
-        'combat-started' | 'sector-entered' | 'run-completed';
+        'combat-started' | 'sector-entered' | 'run-completed' | 'workshop-entered' | 'healed' | 'station-used';
     message?: string;
     enemyId?: string;
     pointId?: string;
@@ -17,6 +18,7 @@ export interface ExplorationEvent {
     from?: WorldPosition;
     to?: WorldPosition;
     sectorIndex?: number;
+    healingRestored?: number;
 }
 
 export interface ExplorationActionResult {
@@ -32,10 +34,12 @@ export class ExplorationEngine {
         this.state = state;
     }
 
-    public contextualAction(): 'search' | 'exit' | null {
+    public contextualAction(): 'search' | 'exit' | 'heal-station' | null {
         const state = this.state;
         if (state.mode !== 'exploration' || state.draggedItem) return null;
-        if (this.sameCell(state.hero, state.map.exit)) return 'exit';
+        if (this.sameCell(state.hero, state.map.exit)) return state.exitLocked ? null : 'exit';
+        if (state.playerHp < state.playerMaxHp && state.aidStations.some(station => !station.used &&
+            this.sameCell(station, state.hero))) return 'heal-station';
         return state.lootPoints.some(point => !point.searched && this.sameCell(point, state.hero))
             ? 'search' : null;
     }
@@ -48,16 +52,8 @@ export class ExplorationEngine {
 
         if (action.type === 'exit') {
             if (this.contextualAction() !== 'exit') return rejected;
-            if (state.sectorIndex + 1 >= SECTOR_DEFINITIONS.length) {
-                state.mode = 'complete';
-                events.push({ type: 'run-completed', message: 'DEMO COMPLETE' });
-            } else {
-                state.loadSector(state.sectorIndex + 1);
-                events.push({
-                    type: 'sector-entered', sectorIndex: state.sectorIndex,
-                    message: `Entered sector ${state.sectorIndex + 1}.`
-                });
-            }
+            if (!state.enterWorkshop()) return rejected;
+            events.push({ type: 'workshop-entered', message: state.workshopFinal ? 'Final workshop.' : 'Entered workshop.' });
             return { accepted: true, events };
         }
 
@@ -80,17 +76,27 @@ export class ExplorationEngine {
             const point = state.lootPoints.find(candidate =>
                 !candidate.searched && this.sameCell(candidate, state.hero));
             if (!point) return rejected;
+            const itemIds = state.addLoot(point.loot);
             point.searched = true;
-            const itemIds = point.definitionIds.map(definitionId => {
-                const item = state.createItem(definitionId);
-                state.putOnGround(item);
-                return item.id;
-            });
             state.worldTurn++;
             events.push({
                 type: 'loot-opened', pointId: point.id, itemIds,
-                message: `Searched ${point.name}: ${itemIds.length} items found.`
+                message: `Searched ${point.name}: ${itemIds.length} supplies found.`
             });
+        } else if (action.type === 'heal') {
+            const healingRestored = state.consumeMedkit(action.itemId);
+            if (healingRestored === 0) return rejected;
+            state.worldTurn++;
+            events.push({ type: 'healed', healingRestored, message: `Medkit restored ${healingRestored} HP.` });
+        } else if (action.type === 'heal-station') {
+            const station = state.aidStations.find(candidate => !candidate.used && this.sameCell(candidate, state.hero));
+            if (!station || state.playerHp <= 0 || state.playerHp >= state.playerMaxHp) return rejected;
+            const healingRestored = Math.min(station.healingAmount, state.playerMaxHp - state.playerHp);
+            station.used = true;
+            state.playerHp += healingRestored;
+            state.worldTurn++;
+            events.push({ type: 'station-used', healingRestored, pointId: station.id,
+                message: `${station.name} restored ${healingRestored} HP.` });
         } else if (action.type === 'wait') {
             state.worldTurn++;
             events.push({ type: 'waited', message: 'You wait.' });

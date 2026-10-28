@@ -140,16 +140,24 @@ export class ExplorationMapView {
         const final = run.mode === 'complete' || run.mode === 'defeat';
         this.title.setText(`SECTOR ${String(run.sectorIndex + 1).padStart(2, '0')} / 02`);
         this.turns.setText(`WORLD TURN: ${String(run.worldTurn).padStart(2, '0')}`);
-        this.paused.setText(run.mode === 'combat' ? 'MAP PAUSED'
+        this.paused.setText(run.mode === 'combat' || run.mode === 'boss-reward' ? 'MAP PAUSED'
             : run.mode === 'complete' ? 'DEMO COMPLETE' : run.mode === 'defeat' ? 'DEFEAT' : '');
         const action = engine.contextualAction();
+        const onExit = run.hero.x === run.map.exit.x && run.hero.y === run.map.exit.y;
+        const exitLocked = run.exitLocked;
+        const station = run.aidStations.find(candidate => candidate.x === run.hero.x && candidate.y === run.hero.y);
         this.waitButton.enabled = enabled && run.mode === 'exploration';
-        this.actionButton.enabled = final || (enabled && action !== null && run.mode === 'exploration');
-        this.actionButton.label.setText(final ? 'NEW RUN' : action === 'search' ? 'SEARCH' : action === 'exit' ? 'LEAVE SECTOR' : 'NO ACTION');
+        this.actionButton.enabled = enabled && (final || (action !== null && run.mode === 'exploration'));
+        this.actionButton.label.setText(final ? 'NEW RUN' : action === 'search' ? 'SEARCH'
+            : action === 'exit' ? 'LEAVE SECTOR' : action === 'heal-station' ? 'USE STATION'
+            : onExit && exitLocked ? 'BOSS ALIVE'
+            : station && !station.used && run.playerHp >= run.playerMaxHp ? 'HP FULL' : 'NO ACTION');
         this.styleButton(this.waitButton);
         this.styleButton(this.actionButton);
         const signature = JSON.stringify([run.sectorIndex, run.map.rows, run.hero, run.enemies, run.lootPoints,
-            Array.from(run.groundItems, ([key, items]) => [key, items.length]), hoveredEnemyId]);
+            run.aidStations, run.requiredBossId,
+            Array.from(run.groundItems, ([key, items]) => [key, items.length]),
+            Array.from(run.groundMaterials, ([key, items]) => [key, items.length]), hoveredEnemyId]);
         if (signature === this.signature) return;
         this.signature = signature;
         this.drawBoard();
@@ -182,24 +190,37 @@ export class ExplorationMapView {
                 g.lineStyle(1, UITheme.colors.border).strokeRect(left, top, 50, 50);
                 const label = this.labels[y * 8 + x].setText('').setColor(cssColor(UITheme.colors.text));
                 const point = run.lootPoints.find(candidate => candidate.x === x && candidate.y === y);
-                const ground = (run.groundItems.get(`${x},${y}`)?.length ?? 0) > 0;
+                const ground = (run.groundItems.get(`${x},${y}`)?.length ?? 0) > 0
+                    || (run.groundMaterials.get(`${x},${y}`)?.length ?? 0) > 0;
                 if (x === run.map.exit.x && y === run.map.exit.y) {
-                    g.lineStyle(2, UITheme.colors.powered).strokeRect(left + 8, top + 8, 34, 34);
-                    label.setText('X').setColor(cssColor(UITheme.colors.powered));
+                    const locked = run.exitLocked;
+                    const exitColor = locked ? UITheme.colors.secondaryText : UITheme.colors.powered;
+                    g.lineStyle(2, exitColor).strokeRect(left + 8, top + 8, 34, 34);
+                    if (locked) g.lineStyle(2, exitColor).lineBetween(left + 10, top + 40, left + 40, top + 10);
+                    label.setText('X').setColor(cssColor(exitColor));
+                }
+                const station = run.aidStations.find(candidate => candidate.x === x && candidate.y === y);
+                if (station) {
+                    const stationColor = station.used ? UITheme.colors.secondaryText : UITheme.colors.powered;
+                    g.lineStyle(1, stationColor).strokeRoundedRect(left + 10, top + 10, 30, 30, 4);
+                    label.setText(station.used ? '·' : '+').setColor(cssColor(stationColor));
+                    if (station.used) g.lineBetween(left + 12, top + 38, left + 38, top + 12);
                 }
                 if (point) {
                     g.lineStyle(1, point.searched ? UITheme.colors.secondaryText : UITheme.colors.selected)
                         .strokeRect(left + 11, top + 13, 28, 24);
                     label.setText(point.searched ? (ground ? '+' : '·') : point.id.endsWith('1') ? '1' : '2')
                         .setColor(cssColor(point.searched ? UITheme.colors.secondaryText : UITheme.colors.selected));
-                } else if (ground) label.setText('+').setColor(cssColor(UITheme.colors.selected));
+                } else if (ground && !station) label.setText('+').setColor(cssColor(UITheme.colors.selected));
                 const enemy = run.enemies.find(candidate => candidate.x === x && candidate.y === y);
                 if (enemy) {
                     g.fillStyle(UITheme.colors.itemBackground).lineStyle(2, UITheme.colors.warning);
-                    if (enemy.kind === 'rat') g.fillCircle(cx, cy, 16).strokeCircle(cx, cy, 16);
+                    if (enemy.isBoss) g.fillRoundedRect(left + 7, top + 7, 36, 36, 5)
+                        .strokeRoundedRect(left + 7, top + 7, 36, 36, 5);
+                    else if (enemy.kind === 'rat') g.fillCircle(cx, cy, 16).strokeCircle(cx, cy, 16);
                     else g.fillTriangle(cx, top + 7, left + 7, top + 41, left + 43, top + 41)
                         .strokeTriangle(cx, top + 7, left + 7, top + 41, left + 43, top + 41);
-                    label.setText(`${enemy.kind === 'rat' ? 'R' : 'C'}${enemy.isChasing ? '!' : ''}`)
+                    label.setText(`${enemy.isBoss ? 'B' : enemy.kind === 'rat' ? 'R' : 'C'}${enemy.isChasing ? '!' : ''}`)
                         .setColor(cssColor(UITheme.colors.warning));
                 }
                 if (run.hero.x === x && run.hero.y === y) {
@@ -208,7 +229,7 @@ export class ExplorationMapView {
                         .closePath().fillPath().strokePath();
                     label.setText('P').setColor(cssColor(UITheme.colors.powered));
                 }
-                if (ground && (enemy || (run.hero.x === x && run.hero.y === y))) {
+                if (ground && (enemy || station || (run.hero.x === x && run.hero.y === y))) {
                     g.lineStyle(2, UITheme.colors.selected).lineBetween(left + 39, top + 38, left + 39, top + 46)
                         .lineBetween(left + 35, top + 42, left + 43, top + 42);
                 }
@@ -261,6 +282,10 @@ export class ExplorationMapView {
     }
 
     private handleBoardHover(pointer: Phaser.Input.Pointer): void {
+        if (!this.visible || !this.enabled) {
+            this.setPointerEnemy(null);
+            return;
+        }
         const cell = this.pointerCell(pointer);
         this.setPointerEnemy(this.run?.enemies.find(enemy => enemy.x === cell.x && enemy.y === cell.y)?.id ?? null);
     }

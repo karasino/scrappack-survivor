@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { runFullCraftingRun } from './crafting-run-scenario.mjs';
+import { runLocationFeedbackChecks } from './ui-feedback-checks.mjs';
 
 // Real core modules are loaded through Vite; the tests contain no replacement game rules.
 export async function runExplorationChecks({ evaluate, read, check, mouse, click, send, renderer }) {
@@ -24,12 +26,12 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
         const selected=run=>[run.inventory.items.find(i=>i.type==='weapon'),run.inventory.items.find(i=>i.type==='armor')];
         const initial=new RunState(42);
         equal(initial.inventory.items.map(i=>[i.definitionId,i.gridX,i.gridY]),[
-            ['heavy_battery',0,0],['laser_pistol',2,0],['weak_battery',0,2],['makeshift_vest',1,2]],'guaranteed starting loadout');
+            ['heavy_battery',0,0],['laser_pistol',2,0],['weak_battery',0,2],['makeshift_vest',1,2],['medkit',0,1]],'guaranteed starting loadout');
         expect(selected(initial).every(i=>i.isSelectedForTurn&&i.isPowered),'starting weapon and armor selected and powered');
         equal(initial.inventory.items.filter(i=>i.type==='battery').map(i=>i.charge),[12,5],'starting charges');
         for(let sector=0;sector<2;sector++){
             const run=new RunState(42);run.loadSector(sector);const engine=new ExplorationEngine(run);
-            equal([run.map.width,run.map.height,run.enemies.length,run.lootPoints.length],[8,8,3,2],'manual sector dimensions '+sector);
+            equal([run.map.width,run.map.height,run.enemies.length,run.lootPoints.length],[8,8,sector===0?3:4,2],'manual sector dimensions '+sector);
             const visited=new Set([run.hero.x+','+run.hero.y]),queue=[run.hero];
             for(let head=0;head<queue.length;head++)for(const [dx,dy] of [[0,-1],[1,0],[0,1],[-1,0]]){
                 const p={x:queue[head].x+dx,y:queue[head].y+dy},key=p.x+','+p.y;
@@ -92,7 +94,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
             const frozen=JSON.stringify([run.worldTurn,run.rngState,run.enemies.map(e=>[e.id,e.x,e.y])]);
             const [weapon,armor]=selected(run);run.processCombatTurn(weapon.id,armor.id);
             equal(run.hero,{x:3,y:3},'defensive victory after waiting keeps hero on their cell');
-            equal([run.itemsAtHero().length,run.groundItems.has('3,2')],[1,false],'defensive reward stays with hero');
+            equal([run.looseLoot().length,run.groundMaterials.has('3,2')],[2,false],'defensive reward stays with hero');
             equal(JSON.stringify([run.worldTurn,run.rngState,[['a',3,2],...run.enemies.map(e=>[e.id,e.x,e.y])]]),frozen,'defensive victory spends no world action or remaining enemy phase');
         }
         {
@@ -110,17 +112,17 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
             equal(JSON.stringify([run.worldTurn,run.hero,run.enemies,run.rngState]),freeze,'combat freezes map and RNG');
             const [weapon,armor]=selected(run);run.processCombatTurn(weapon.id,armor.id);
             equal(run.hero,{x:4,y:3},'offensive victory completes the requested step onto enemy cell');
-            expect(run.groundItems.get('4,3')===run.itemsAtHero()&&!run.groundItems.has('3,3'),'offensive reward appears on destination cell');
-            equal([run.mode,run.enemies.length,run.itemsAtHero()[0].definitionId,run.itemsAtHero()[0].charge],['exploration',1,'weak_battery',2],'victory removes one monster and rewards once');
+            expect(run.groundMaterials.has('4,3')&&!run.groundMaterials.has('3,3'),'offensive reward appears on destination cell');
+            equal([run.mode,run.enemies.length,...run.looseLoot().map(l=>[l.material,l.amount])],['exploration',1,['metal',1],['electronics',1]],'victory removes one monster and rewards once');
             equal([run.worldTurn,run.rngState],[1,123],'victory does not resume interrupted phase');
-            let rejected=false;try{run.processCombatTurn(weapon.id,armor.id)}catch{rejected=true}expect(rejected&&run.itemsAtHero().length===1,'terminal battle cannot reward twice');
+            let rejected=false;try{run.processCombatTurn(weapon.id,armor.id)}catch{rejected=true}expect(rejected&&run.looseLoot().length===2,'terminal battle cannot reward twice');
         }
         {
             const {run,engine,add}=fixture();run.hero={x:3,y:3};add('a','scorpion',4,3);
             const observer=add('b','rat',7,3,{detectionRadius:3});
             const sourceLoot=run.createItem('weak_battery'),targetLoot=run.createItem('copper_wire');
             run.putOnGround(sourceLoot,3,3);run.putOnGround(targetLoot,4,3);
-            run.lootPoints=[{id:'guarded-cache',name:'Scrap Heap',x:4,y:3,searched:false,definitionIds:['copper_wire']}];
+            run.lootPoints=[{id:'guarded-cache',name:'Scrap Heap',x:4,y:3,searched:false,loot:[{kind:'item',definitionId:'copper_wire'}]}];
             engine.applyAction({type:'move',dx:1,dy:0});
             const [weapon,armor]=selected(run);
             const first=run.processCombatTurn(weapon.id,armor.id);
@@ -130,7 +132,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
             run.processCombatTurn(weapon.id,armor.id);
             equal(run.hero,{x:4,y:3},'multi-turn victory advances exactly one cell');
             equal(run.groundItems.get('3,3'),[sourceLoot],'loot previously on source cell stays behind');
-            expect(run.itemsAtHero().includes(targetLoot)&&run.itemsAtHero().length===2,'destination loot is preserved alongside reward');
+            expect(run.itemsAtHero().includes(targetLoot)&&run.looseLoot().length===3,'destination loot is preserved alongside reward');
             equal([run.worldTurn,run.rngState,observer.x,observer.y],frozen,'victory movement spends no turn RNG or enemy movement');
             expect(observer.isChasing,'detection indicator updates for the new hero position');
             equal([engine.contextualAction(),run.lootPoints[0].searched],['search',false],'victory does not automatically search guarded cache');
@@ -159,7 +161,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
         }
         {
             const {run,engine,add}=fixture();run.hero={x:3,y:3};add('a','rat',3,2);
-            run.lootPoints=[{id:'cache',name:'Scrap Heap',x:3,y:3,searched:false,definitionIds:['weak_battery','copper_wire']}];
+            run.lootPoints=[{id:'cache',name:'Scrap Heap',x:3,y:3,searched:false,loot:[{kind:'item',definitionId:'weak_battery'},{kind:'item',definitionId:'copper_wire'}]}];
             engine.applyAction({type:'search'});equal([run.mode,run.lootPoints[0].searched,run.itemsAtHero().length],['combat',true,2],'search opens loot before contact');
             const [weapon,armor]=selected(run);run.processCombatTurn(weapon.id,armor.id);const count=run.itemsAtHero().length;
             expect(!engine.applyAction({type:'search'}).accepted&&run.itemsAtHero().length===count,'search cannot duplicate contents');
@@ -187,96 +189,24 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
             const abandoned=run.createItem('copper_wire');run.putOnGround(abandoned);run.putOnGround(abandoned);
             equal(run.itemsAtHero().length,1,'ground ownership does not duplicate an instance');
             run.hero={...run.map.exit};const result=engine.applyAction({type:'exit'});
-            equal([run.sectorIndex,run.worldTurn,run.playerHp,item.charge,run.allGroundItems().length],[1,0,61,7,0],'sector transition keeps resources and discards ground');
+            equal([run.mode,run.worldTurn,run.playerHp,item.charge],['workshop',0,61,7],'workshop transition keeps resources');
+            expect(run.continueFromWorkshop(),'workshop continues to second sector');
+            equal(run.allGroundItems().length,0,'continuing discards former ground and bench');
+            equal(run.sectorIndex,1,'continue loads second sector');
             expect(inventory.every((i,n)=>run.inventory.items[n]===i),'transition keeps exact item instances');
             equal(run.inventory.items.map(i=>i.isSelectedForTurn),selection,'transition retains selection');
-            equal(result.events[0].type,'sector-entered','sector entry event');
-            run.hero={...run.map.exit};engine.applyAction({type:'exit'});
-            equal([run.mode,run.worldTurn],['complete',0],'second exit completes without monster phase');
+            equal(result.events[0].type,'workshop-entered','workshop entry event');
+            run.requiredBossId=null;run.hero={...run.map.exit};engine.applyAction({type:'exit'});
+            expect(run.mode==='workshop'&&run.workshopFinal,'second exit opens final workshop');
+            expect(run.continueFromWorkshop(),'final workshop finishes demonstration');
+            equal([run.mode,run.worldTurn],['complete',0],'finish completes without monster phase');
             expect(!engine.applyAction({type:'wait'}).accepted,'completion freezes gameplay');
-        }
-        {
-            // Complete a real seeded run by walking to both caches and the exit.
-            // Only discovered batteries can replace existing sources; HP and positions
-            // are changed exclusively by the real exploration/combat models.
-            const dirs=[{x:0,y:-1},{x:1,y:0},{x:0,y:1},{x:-1,y:0}];
-            const key=p=>p.x+','+p.y;
-            const assert=(value,label='full run action accepted')=>expect(Boolean(value),label);
-            assert.equal=(actual,expected,label='full run state')=>equal(actual,expected,label);
-            function firstStep(state, target) {
-                const queue = [{ p: state.hero, step: null }];
-                const seen = new Set([key(state.hero)]);
-                for (let h = 0; h < queue.length; h++) {
-                    const { p, step } = queue[h];
-                    if (key(p) === key(target)) return step;
-                    for (const d of dirs) {
-                        const next = { x: p.x + d.x, y: p.y + d.y };
-                        if (!state.isWalkable(next) || seen.has(key(next))) continue;
-                        seen.add(key(next));
-                        queue.push({ p: next, step: step ?? d });
-                    }
-                }
-                throw new Error('Unreachable target');
-            }
-            function upgradeBatteries(state) {
-                for (const voltage of ['high', 'low']) {
-                    const existing = state.inventory.items.find(i => i.type === 'battery' && i.voltageType === voltage);
-                    const best = state.itemsAtHero().filter(i => i.type === 'battery' && i.voltageType === voltage)
-                        .sort((a, b) => b.charge - a.charge)[0];
-                    if (!best || (existing && existing.charge >= best.charge)) continue;
-                    if (existing) state.putOnGround(existing);
-                    state.removeFromGround(best.id);
-                    const pos = voltage === 'high' ? [0, 0] : [0, 2];
-                    assert(state.inventory.placeItem(best, ...pos));
-                    state.inventory.updatePowerGrid();
-                }
-            }
-            function simulation(seed) {
-                const state = new RunState(seed);
-                const engine = new ExplorationEngine(state);
-                let fights = 0;
-                let steps = 0;
-                function fight() {
-                    if (state.mode !== 'combat') return;
-                    fights++;
-                    for (let n = 0; state.mode === 'combat' && n < 100; n++) {
-                        const weapon = state.inventory.items.find(i => i.type === 'weapon');
-                        const armor = state.inventory.items.find(i => i.type === 'armor');
-                        state.processCombatTurn(weapon.id, armor?.id ?? null);
-                    }
-                    assert.equal(state.mode, 'exploration', 'seed '+seed+' survived battle');
-                    upgradeBatteries(state);
-                }
-                for (let sector = 0; sector < 2; sector++) {
-                    const goals = [...state.lootPoints.map(p => ({ x: p.x, y: p.y })), { ...state.map.exit }];
-                    for (let goalIndex = 0; goalIndex < goals.length; goalIndex++) {
-                        const target = goals[goalIndex];
-                        for (let n = 0; key(state.hero) !== key(target) && n < 300; n++) {
-                            const d = firstStep(state, target);
-                            const result = engine.applyAction({ type: 'move', dx: d.x, dy: d.y });
-                            assert(result.accepted);
-                            steps++;
-                            fight();
-                        }
-                        assert.equal(key(state.hero), key(target));
-                        if (goalIndex < goals.length - 1) {
-                            assert(engine.applyAction({ type: 'search' }).accepted);
-                            fight();
-                            upgradeBatteries(state);
-                        } else {
-                            assert(engine.applyAction({ type: 'exit' }).accepted);
-                        }
-                    }
-                }
-                assert.equal(state.mode, 'complete');
-                return { seed, hp: state.playerHp, fights, steps };
-            }
-            const result=simulation(123);
-            equal([result.hp,result.fights,result.steps],[100,6,48],'complete real two-sector run without teleports or resource edits');
         }
         return checks;
     })()`);
     console.log(`PASS ${renderer}: ${coreChecks.length} exploration core assertions`);
+    const completeRun=await evaluate('('+runFullCraftingRun.toString()+')()');
+    assert.equal(completeRun.fights,7,`${renderer}: ordinary actions complete both crafting sectors and boss`);
 
     const waitFor = async (condition,label) => {
         for(let i=0;i<100;i++){if(await read(condition))return;await delay(25);}
@@ -303,7 +233,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     };
     await evaluate('freshRun()');
     await viewport(1366,650);
-    await check('[s.compact,s.scale.width,s.scale.height,s.run.mode,s.inventory.items.length]',[false,1248,640,'exploration',4],'wide new run');
+    await check('[s.compact,s.scale.width,s.scale.height,s.run.mode,s.inventory.items.length]',[false,1248,640,'exploration',5],'wide new run');
     await check("s.children.getAll().some(o=>o.type==='Text'&&o.text==='SCAVENGE SCRAP')",false,'scavenge is absent');
     await capture('wide-exploration');
     await mouse('mouseMoved',1049,225);
@@ -342,12 +272,13 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     // Ground pages, persistent ownership and both directions of actual drag/drop.
     await viewport(1366,650);
     await evaluate(`s.run.hero={x:1,y:5};s.performWorldAction({type:'search'});s.updateCombatUI()`);
-    await check('[s.run.itemsAtHero().length,s.run.worldTurn]',[2,4],'first search reveals two items');
+    await check('[s.run.looseLoot().length,s.run.worldTurn]',[2,4],'first search reveals two material packets');
+    await evaluate("for(const loot of [...s.run.looseLoot()])if(loot.kind==='material')s.run.collectMaterials(loot.id);s.run.putOnGround(s.run.createItem('power_core'));s.run.putOnGround(s.run.createItem('precision_mechanism'));s.groundPage=0;s.updateCombatUI()");
     await capture('wide-loot');
     const groundId=await read('s.run.itemsAtHero()[0].id');
     const groundPoint=await read(`(()=>{const v=s.visualItemsMap.get(${JSON.stringify(groundId)});return [v.rect.x+10,v.rect.y+10]})()`);
     await mouse('mousePressed',...groundPoint);await mouse('mouseMoved',groundPoint[0]+15,groundPoint[1]);
-    await mouse('mouseMoved',425,375);await mouse('mouseReleased',425,375);
+    await mouse('mouseMoved',375,225);await mouse('mouseReleased',375,225);
     await check(`s.inventory.items.some(i=>i.id===${JSON.stringify(groundId)})`,true,'ground drag picks up item');
     await check('[s.run.itemsAtHero().length,s.run.worldTurn]',[1,4],'pickup costs no world turn');
     const placed=await read(`(()=>{const v=s.visualItemsMap.get(${JSON.stringify(groundId)});return [v.rect.x+10,v.rect.y+10]})()`);
@@ -358,7 +289,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     await evaluate(`s.performWorldAction({type:'move',dx:0,dy:1});s.performWorldAction({type:'move',dx:0,dy:-1})`);
     await check('s.run.itemsAtHero().map(i=>i.id).sort()',lootBefore,'ground persists after leaving and returning');
 
-    await evaluate(`for(let y=0;y<6;y++)for(let x=0;x<6;x++){
+    await evaluate(`for(let y=0;y<s.inventory.height;y++)for(let x=0;x<s.inventory.width;x++){
         const item=s.run.createItem('copper_wire');item.width=item.height=1;
         if(s.inventory.canPlaceItem(item,x,y)){s.inventory.placeItem(item,x,y);s.addItemVisual(item)}
     }s.groundPage=0;s.updateCombatUI()`);
@@ -395,8 +326,8 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     await key('b','KeyB',66);await check('s.backpackView',true,'combat prevents map switch');
     await click(663,544);
     await waitFor("s.run.mode==='exploration'",'victory returns exploration');
-    await check('[s.backpackView,s.run.itemsAtHero().length,s.run.worldTurn]',[false,1,1],'victory returns compact map and grants one reward');
-    await check('[s.run.hero,s.run.groundItems.has("4,1"),s.run.groundItems.has("4,0"),s.mapView.labels[12].text]',
+    await check('[s.backpackView,s.run.looseLoot().length,s.run.worldTurn]',[false,2,1],'victory returns compact map and grants one reward');
+    await check('[s.run.hero,s.run.groundMaterials.has("4,1"),s.run.groundMaterials.has("4,0"),s.mapView.labels[12].text]',
         [{x:4,y:1},true,false,'P'],'click-initiated victory moves hero and loot to enemy cell in compact map');
     await evaluate(`s.run.enemies=[{...s.run.enemies[0],x:3,y:1,maxHp:12}];s.updateCombatUI()`);
     await key(' ','Space',32);
@@ -404,17 +335,22 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     const defensiveWorld=await read('JSON.stringify([s.run.worldTurn,s.run.rngState,s.run.enemies])');
     await click(663,544);
     await waitFor("s.run.mode==='exploration'",'defensive victory returns exploration');
-    await check('[s.run.hero,s.run.itemsAtHero().length,s.run.groundItems.has("3,1")]',
-        [{x:4,y:1},2,false],'wait-initiated defensive victory keeps hero and loot on hero cell');
+    await check('[s.run.hero,s.run.looseLoot().length,s.run.groundMaterials.has("3,1")]',
+        [{x:4,y:1},4,false],'wait-initiated defensive victory keeps hero and loot on hero cell');
     await check('JSON.stringify([s.run.worldTurn,s.run.rngState])',
         JSON.stringify(JSON.parse(defensiveWorld).slice(0,2)),'defensive victory adds no world turn or RNG');
     await evaluate('s.run.enemies=[];s.run.hero={...s.run.map.exit};globalThis.sessionInventory=s.inventory.items.slice();globalThis.hpBefore=s.run.playerHp;globalThis.chargeBefore=s.inventory.items.filter(i=>i.type===\'battery\').map(i=>i.charge);s.performWorldAction({type:"exit"})');
-    await check('[s.run.sectorIndex,s.run.worldTurn,s.run.playerHp===hpBefore,s.inventory.items.every((i,n)=>i===sessionInventory[n]),s.inventory.items.filter(i=>i.type===\'battery\').map(i=>i.charge)]',[1,0,true,true,await read('chargeBefore')],'UI sector transition retains HP, charge and instances');
-    await evaluate('s.run.hero={...s.run.map.exit};s.performWorldAction({type:"exit"})');
-    await check('[s.run.mode,s.canEndTurn()]',['complete',false],'second UI exit completes demo');
+    await check('[s.run.mode,s.run.playerHp===hpBefore,s.inventory.items.every((i,n)=>i===sessionInventory[n]),s.inventory.items.filter(i=>i.type===\'battery\').map(i=>i.charge)]',['workshop',true,true,await read('chargeBefore')],'UI workshop transition retains HP, charge and instances');
+    await evaluate('s.continueWorkshop()');
+    await check('s.run.sectorIndex',1,'UI workshop continue loads second sector');
+    await evaluate('s.run.requiredBossId=null;s.run.hero={...s.run.map.exit};s.performWorldAction({type:"exit"})');
+    await check('[s.run.mode,s.run.workshopFinal,s.canEndTurn()]',['workshop',true,false],'second UI exit opens final workshop');
+    await evaluate('s.continueWorkshop()');
+    await check('s.run.mode','complete','final workshop finishes demo');
     const oldSeed=await read('s.run.seed');await click(408,576);
     await waitFor("s.run.mode==='exploration'",'NEW RUN button starts a fresh session');
-    await check('[s.run.mode,s.run.sectorIndex,s.run.worldTurn,s.run.playerHp,s.inventory.items.length]',['exploration',0,0,100,4],'new run resets resources');
+    await check('[s.run.mode,s.run.sectorIndex,s.run.worldTurn,s.run.playerHp,s.inventory.items.length]',['exploration',0,0,100,5],'new run resets resources');
     assert.notEqual(await read('s.run.seed'),oldSeed,`${renderer}: new run chooses another seed`);
     console.log(`PASS ${renderer}: UI controls, four viewports, resize rollback, ground ownership, repeated combat and two-sector completion`);
+    await runLocationFeedbackChecks({evaluate,read,check,mouse,click,send,renderer});
 }

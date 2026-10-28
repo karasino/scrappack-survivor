@@ -3,14 +3,21 @@ import type { Item } from './Item';
 import { prepareEnergyPlan } from './EnergyPlan';
 
 export interface CombatTurnLog {
+    actionType: 'attack' | 'heal';
+    healingRestored: number;
+    consumableUsedName: string | null;
     damageDealt: number;
     shieldGenerated: number;
     damageTaken: number;
-    weaponUsedName: string;
+    weaponUsedName: string | null;
     armorUsedName: string | null;
     isEnemyDead: boolean;
     isPlayerDead: boolean;
 }
+
+export type CombatAction =
+    { type: 'attack'; weaponId: string; armorId: string | null } |
+    { type: 'heal'; consumableId: string; armorId: string | null };
 
 export class CombatEngine {
     public readonly inventory: Inventory;
@@ -39,13 +46,25 @@ export class CombatEngine {
     }
 
     public processTurn(selectedWeaponId: string, selectedArmorId: string | null): CombatTurnLog {
-        const weapon = this.findItem(selectedWeaponId, 'weapon');
-        const armor = selectedArmorId === null
-            ? null
-            : this.findItem(selectedArmorId, 'armor');
+        return this.processAction({ type: 'attack', weaponId: selectedWeaponId, armorId: selectedArmorId });
+    }
 
+    public processAction(action: CombatAction): CombatTurnLog {
+        const weapon = action.type === 'attack' ? this.findItem(action.weaponId, 'weapon') : null;
+        const armor = action.armorId === null
+            ? null
+            : this.findItem(action.armorId, 'armor');
+        const consumable = action.type === 'heal' ? this.inventory.items.find(item => item.id === action.consumableId
+            && item.type === 'consumable' && item.healingAmount > 0) : null;
+        if (action.type === 'heal' && (!consumable || this.playerHp <= 0 || this.playerHp >= this.playerMaxHp)) {
+            throw new Error('Cannot use a medkit: select an owned medkit while health is below maximum.');
+        }
+
+        const healingRestored = consumable ? Math.min(consumable.healingAmount, this.playerMaxHp - this.playerHp) : 0;
+        this.playerHp += healingRestored;
+        if (consumable) this.inventory.removeItem(consumable.id);
         const plan = prepareEnergyPlan(this.inventory, weapon, armor);
-        const rawDamage = plan.weaponPowered ? weapon.poweredDamage : weapon.baseDamage;
+        const rawDamage = weapon ? (plan.weaponPowered ? weapon.poweredDamage : weapon.baseDamage) : 0;
         const damageDealt = Math.min(this.enemyHp, Math.max(0, rawDamage));
         this.enemyHp = Math.max(0, this.enemyHp - damageDealt);
 
@@ -65,10 +84,13 @@ export class CombatEngine {
         this.removeDepletedBatteries();
 
         return {
+            actionType: action.type,
+            healingRestored,
+            consumableUsedName: consumable?.name ?? null,
             damageDealt,
             shieldGenerated,
             damageTaken,
-            weaponUsedName: weapon.name,
+            weaponUsedName: weapon?.name ?? null,
             armorUsedName: armor?.name ?? null,
             isEnemyDead: this.enemyHp <= 0,
             isPlayerDead: this.playerHp <= 0

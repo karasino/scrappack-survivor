@@ -3,7 +3,8 @@ import type { ItemType } from '../core/Item';
 // Presentation copy is independent of combat calculations and input handling.
 export const TOOLTIP_TEXT = {
     types: {
-        weapon: 'Weapon', armor: 'Armor', battery: 'Battery', wire: 'Wire', transformer: 'Transformer'
+        weapon: 'Weapon', armor: 'Armor', battery: 'Battery', wire: 'Wire', transformer: 'Transformer',
+        component: 'Crafting Component', consumable: 'Consumable'
     } satisfies Record<ItemType, string>,
     low: 'Low',
     high: 'High',
