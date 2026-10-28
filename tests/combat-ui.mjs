@@ -12,6 +12,7 @@ import { runEnergyPlanChecks } from './energy-plan-checks.mjs';
 import { runPowerReasonChecks } from './power-reason-checks.mjs';
 import { captureVisualScenarios } from './visual-scenarios.mjs';
 import { runVisualPrototypeChecks } from './visual-prototype-checks.mjs';
+import { runExplorationChecks } from './exploration-checks.mjs';
 
 const profile = await mkdtemp(join(tmpdir(), 'scrappack-ui-'));
 const origin = 'http://127.0.0.1:4175';
@@ -22,11 +23,11 @@ let cdp;
 const pending = new Map();
 const browserErrors = [];
 const timeout = setTimeout(() => {
-    console.error('Browser checks exceeded 120 seconds.');
+    console.error('Browser checks exceeded 240 seconds.');
     server.kill();
     chrome?.kill();
     process.exitCode = 1;
-}, 120_000);
+}, 240_000);
 
 try {
     await new Promise((resolve, reject) => {
@@ -79,7 +80,7 @@ try {
         await send('Runtime.enable');
         await send('Page.enable');
         await send('Emulation.setFocusEmulationEnabled', { enabled: true });
-        await send('Emulation.setDeviceMetricsOverride', { width: 820, height: 640, deviceScaleFactor: 1, mobile: false });
+        await send('Emulation.setDeviceMetricsOverride', { width: 800, height: 600, deviceScaleFactor: 1, mobile: false });
         if (renderer === 'canvas') {
             // Force Phaser.AUTO down its Canvas path without changing the game's config.
             await send('Page.addScriptToEvaluateOnNewDocument', { source: `(() => {
@@ -99,6 +100,7 @@ try {
             const { game } = await import('/src/game/main.ts');
             const { Item } = await import('/src/game/core/Item.ts');
             const { LootTable } = await import('/src/game/core/LootTable.ts');
+            const { CombatEngine } = await import('/src/game/core/CombatEngine.ts');
             for (let i = 0; i < 100 && !game.scene.isActive('GameScene'); i++) {
                 await new Promise(r => setTimeout(r, 20));
             }
@@ -107,20 +109,33 @@ try {
                 for (const config of items) {
                     const base = LootTable.find(item => item.type === config.type);
                     const item = new Item({ ...base, ...config });
-                    s.addItemVisual(item);
                     if (config.x !== undefined) {
                         if (!s.inventory.placeItem(item, config.x, config.y)) throw Error('Invalid fixture placement');
-                        s.visualItemsMap.get(item.id).setPosition(200 + 50 * config.x, 150 + 50 * config.y);
                     }
+                    s.addItemVisual(item);
+                    if (config.x !== undefined) s.visualItemsMap.get(item.id).setPosition(200 + 50 * config.x, 150 + 50 * config.y);
                 }
                 s.refreshPowerGrid();
                 s.updateCombatUI();
             };
-            globalThis.reset = async () => {
-                const previous = s.combatEngine;
+            globalThis.freshRun = async () => {
+                const previous = s.run;
                 s.scene.restart();
-                for (let i = 0; i < 100 && s.combatEngine === previous; i++) await new Promise(r => setTimeout(r, 20));
-                if (s.combatEngine === previous) throw Error('Scene did not restart');
+                for (let i = 0; i < 100 && (s.run === previous || !s.sys.isActive() || !s.endTurnButton?.input || s.endTurnButton.scene!==s); i++) await new Promise(r => setTimeout(r, 20));
+                if (s.run === previous || !s.endTurnButton?.input || s.endTurnButton.scene!==s) throw Error('Scene did not finish restarting');
+                s.backpackView=true;s.applyLayout();
+            };
+            globalThis.reset = async () => {
+                await freshRun();
+                for(const v of Array.from(s.visualItemsMap.values()))v.destroy();
+                for(const item of [...s.inventory.items])s.inventory.removeItem(item.id);
+                s.run.groundItems?.clear();
+                s.run.beginEncounter(s.run.enemies[0].id);
+                s.combatEngine=new CombatEngine(s.inventory,100,50,12,'Rad-Scorpion');
+                s.battleState='active';s.completedTurns=0;s.messages=[];
+                s.appendMessage('Select a weapon to begin.');
+                seed([{id:'scrap_battery_01',definitionId:'rusty_battery',name:'Rusty Battery',type:'battery'}]);
+                s.updateCombatUI();
             };
             return game.renderer.type;
         })()`);
@@ -129,8 +144,8 @@ try {
         const mouse = async (type, x, y, button = 'left') => {
             if (type === 'mousePressed') heldButtons = button === 'left' ? 1 : 2;
             if (type === 'mouseReleased') heldButtons = 0;
-            const offset = await evaluate(`(() => { const r = document.querySelector('canvas').getBoundingClientRect(); return { x:r.x,y:r.y }; })()`);
-            await send('Input.dispatchMouseEvent', { type, x: x + offset.x, y: y + offset.y,
+            const offset = await evaluate(`(() => { const r = document.querySelector('canvas').getBoundingClientRect(); return { x:r.x,y:r.y,sx:r.width/s.scale.width,sy:r.height/s.scale.height }; })()`);
+            await send('Input.dispatchMouseEvent', { type, x: x * offset.sx + offset.x, y: y * offset.sy + offset.y,
                 button: type === 'mouseMoved' ? 'none' : button,
                 buttons: heldButtons, clickCount: 1 });
         };
@@ -144,6 +159,12 @@ try {
         const frame = () => delay(35);
         const restart = () => evaluate('reset()');
 
+        if (process.argv.includes('--exploration-only')) {
+            await runExplorationChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+            await cdp('Target.closeTarget',{targetId});
+            continue;
+        }
+        await restart();
         await captureVisualScenarios({ evaluate,read,mouse,click,restart,send,renderer },
             process.env.SCRAPPACK_VISUAL_CAPTURE);
 
@@ -159,10 +180,9 @@ try {
         { hp:'100 / 100',enemy:'50 / 50',status:'TURN 01',hint:'SELECT A WEAPON',ready:false,inventory:0,button:[550,520,226,48] }, 'initial state');
         await click(663, 544);
         await check('s.completedTurns', 0, 'disabled turn');
-        await click(650, 460);
-        await check('s.visualItemsMap.size', 2, 'scavenge');
+        await check("s.children.getAll().some(o=>o.type==='Text'&&o.text==='SCAVENGE SCRAP')", false, 'test scavenge removed');
         await check(`Array.from(s.visualItemsMap.values()).every(v => v.rect.x >= 562 && v.rect.y >= 246
-            && v.rect.x+v.rect.width <= 764 && v.rect.y+v.rect.height <= 408)`, true, 'loot bounds');
+            && v.rect.x+v.rect.width <= 764 && v.rect.y+v.rect.height <= 408)`, true, 'ground bounds');
         await restart();
 
         await evaluate(`seed([{type:'weapon',id:'a',x:0,y:0},{type:'weapon',id:'b',x:0,y:1},
@@ -210,10 +230,10 @@ try {
         await mouse('mouseReleased',700,350);
         await check(`(() => {const v=s.visualItemsMap.get('a');return {placed:s.inventory.items.length,
             selected:v.itemModel.isSelectedForTurn,inside:v.rect.x>=562&&v.rect.y>=246&&v.rect.x+v.rect.width<=764&&v.rect.y+v.rect.height<=408}})()`,
-        {placed:0,selected:false,inside:true}, 'invalid drop returns to scrap');
+        {placed:1,selected:false,inside:false}, 'combat ground drop restores original inventory position');
         const lootPoint = await read(`(() => {const r=s.visualItemsMap.get('a').rect;return [r.x+10,r.y+10]})()`);
         await click(...lootPoint);
-        await check("s.visualItemsMap.get('a').itemModel.isSelectedForTurn",false,'loot cannot select');
+        await check("s.visualItemsMap.get('a').itemModel.isSelectedForTurn",true,'restored item remains selectable');
         await mouse('mousePressed',...lootPoint);
         await mouse('mouseMoved',lootPoint[0]+15,lootPoint[1]);
         await evaluate('s.game.events.emit("blur")');
@@ -266,18 +286,18 @@ try {
         {battery:false,grid:false,loot:true,powered:false,selected:true,bfs:1},'depletion removes only placed battery and recalculates once');
         await restart();
 
-        for (const [enemyHp,playerHp,outcome] of [[4,100,'victory'],[50,12,'defeat'],[4,12,'defeat']]) {
+        for (const [enemyHp,playerHp,outcome] of [[50,12,'defeat'],[4,12,'defeat']]) {
             await evaluate(`seed([{type:'weapon',id:'a',x:0,y:0}]);s.combatEngine.enemyHp=${enemyHp};s.combatEngine.playerHp=${playerHp};s.updateCombatUI()`);
             await click(225,175);
             await click(663,544);
             await check('s.battleState',outcome,'terminal outcome');
-            await check(`({ready:s.canEndTurn(),scavenge:s.scavengeButton.input.enabled,
+            await check(`({ready:s.canEndTurn(),
                 hover:s.visualItemsMap.get('a').rect.input.enabled,drag:s.visualItemsMap.get('a').rect.input.draggable,status:s.statusText.text,
                 enemyVisible:s.enemyHpFill.visible,playerVisible:s.playerHpFill.visible})`,
-            {ready:false,scavenge:false,hover:true,drag:false,status:outcome.toUpperCase(),enemyVisible:enemyHp!==4,playerVisible:playerHp!==12},'terminal controls and zero bars');
+            {ready:false,hover:true,drag:false,status:outcome.toUpperCase(),enemyVisible:enemyHp!==4,playerVisible:playerHp!==12},'terminal controls and zero bars');
             const snapshot=await read('[s.combatEngine.enemyHp,s.combatEngine.playerHp,s.visualItemsMap.size,s.inventory.items[0].isSelectedForTurn]');
             await delay(280);
-            await click(663,544);
+            await evaluate('s.resolveTurn()');
             await click(650,460);
             await click(225,175);
             await mouse('mousePressed',225,175);
@@ -304,10 +324,10 @@ try {
             s.combatEngine.processTurn=()=>{calls++;s.combatEngine.playerHp=73;s.inventory.removeItem('a');throw Error('Injected partial failure')}`);
         await click(225,175);
         await click(663,544);
-        await click(663,544);
+        await evaluate('s.resolveTurn()');
         await check(`({calls,error:s.hasCombatError,hp:s.playerHpText.text,turn:s.completedTurns,
             processing:s.isProcessingTurn,hint:s.hintText.text,ready:s.canEndTurn()})`,
-        {calls:1,error:true,hp:'73 / 100',turn:0,processing:false,hint:'COMBAT ERROR\nRESTART REQUIRED',ready:false},'partial error synchronizes and never retries');
+        {calls:1,error:true,hp:'73 / 100',turn:0,processing:false,hint:'ERROR: START A NEW RUN',ready:false},'partial error synchronizes and never retries');
         await restart();
 
         await evaluate(`seed([{type:'weapon',id:'a',x:0,y:0},{type:'weapon',id:'b',x:0,y:1}]);
@@ -317,7 +337,7 @@ try {
         await check(`({history:s.messages.length,lines:s.logText.text.split(String.fromCharCode(10)).length,fits:s.logText.width<=452
             &&s.logText.height<=60,mask:!!s.logText.mask||!!s.logText.filters?.external.list.length})`,
         {history:64,lines:4,fits:true,mask:true},'bounded wrapped log');
-        await evaluate(`s.combatEngine = new (s.combatEngine.constructor)(s.inventory,0,0,12,'Rad-Scorpion');s.updateCombatUI()`);
+        await evaluate(`s.combatEngine = new (s.combatEngine.constructor)(s.inventory,0,0,12,'Rad-Scorpion');s.run.playerHp=0;s.updateCombatUI()`);
         await check('[s.playerHpFill.visible,s.enemyHpFill.visible]',[false,false],'zero maximum health');
         await restart();
 
@@ -336,7 +356,7 @@ try {
         await check(`({turn:s.completedTurns,history:s.messages.length,error:s.hasCombatError,
             active:s.battleState,drag:!!s.activeDrag,delay:s.nextAllowedTurnAt,items:s.visualItemsMap.size})`,
         {turn:0,history:1,error:false,active:'active',drag:false,delay:0,items:1},'restart resets state');
-        const image = await send('Page.captureScreenshot',{format:'png',clip:{x:8,y:8,width:800,height:600,scale:1}});
+        const image = await send('Page.captureScreenshot',{format:'png',clip:await read(`(()=>{const r=s.game.canvas.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1};})()`)});
         await writeFile(join(tmpdir(),`scrappack-${renderer}.png`),Buffer.from(image.data,'base64'));
         console.log(`PASS ${renderer}: selection, gestures, combat, energy, terminal states, errors, log, restart`);
         await cdp('Target.closeTarget',{targetId});

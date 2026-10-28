@@ -23,7 +23,7 @@ interface ItemGesture {
     rotated: boolean;
 }
 
-const SCRAP = { x: 562, y: 246, width: 202, height: 162 };
+const GROUND = { x: 562, y: 246, width: 202, height: 162 };
 
 export class ItemVisual {
     public readonly itemModel: Item;
@@ -33,13 +33,13 @@ export class ItemVisual {
 
     private readonly selectionGraphics: Phaser.GameObjects.Graphics;
     private readonly connectionGraphics: Phaser.GameObjects.Graphics;
-    private readonly startX: number;
-    private readonly startY: number;
     private readonly scene: Phaser.Scene;
     private readonly cellSize: number;
     private readonly callbacks: ItemVisualCallbacks;
     private gesture: ItemGesture | null = null;
     private isDragging = false;
+    private isVisible = true;
+    private interactionEnabled = true;
     private artAngle = 0;
     private readonly artHover = { value: 1 };
     private hoverTween: Phaser.Tweens.Tween | null = null;
@@ -52,17 +52,17 @@ export class ItemVisual {
         this.itemModel = itemModel;
         const presentation = getItemPresentation(itemModel.definitionId);
         this.imagePadding = presentation?.padding ?? UITheme.item.padding;
-        this.startX = SCRAP.x + Phaser.Math.Between(0, Math.max(0, SCRAP.width - itemModel.width * cellSize));
-        this.startY = SCRAP.y + Phaser.Math.Between(0, Math.max(0, SCRAP.height - itemModel.height * cellSize));
+        const startX = GROUND.x + Math.max(0, GROUND.width - itemModel.width * cellSize) / 2;
+        const startY = GROUND.y + Math.max(0, GROUND.height - itemModel.height * cellSize) / 2;
 
         this.rect = scene.add.rectangle(
-            this.startX, this.startY, itemModel.width * cellSize, itemModel.height * cellSize, UITheme.colors.itemBackground
+            startX, startY, itemModel.width * cellSize, itemModel.height * cellSize, UITheme.colors.itemBackground
         ).setOrigin(0).setInteractive({ draggable: true });
         this.selectionGraphics = scene.add.graphics();
         this.connectionGraphics = scene.add.graphics().setDepth(UITheme.layers.connections);
         this.image = presentation && scene.textures.exists(presentation.textureKey)
-            ? scene.add.image(this.startX, this.startY, presentation.textureKey).setOrigin(0.5) : null;
-        this.text = scene.add.text(this.startX + 5, this.startY + 5, itemModel.name, {
+            ? scene.add.image(startX, startY, presentation.textureKey).setOrigin(0.5) : null;
+        this.text = scene.add.text(startX + 5, startY + 5, itemModel.name, {
             fontSize: `${UITheme.fonts.itemLabel}px`, color: cssColor(UITheme.colors.text),
             fontFamily: UITheme.fonts.family
         }).setVisible(this.image === null);
@@ -147,7 +147,7 @@ export class ItemVisual {
     }
 
     private interactionAllowed(): boolean {
-        return this.callbacks.isInteractionAllowed?.() ?? true;
+        return this.isVisible && this.interactionEnabled && (this.callbacks.isInteractionAllowed?.() ?? true);
     }
 
     private trackMovement(pointer: Phaser.Input.Pointer): void {
@@ -249,13 +249,44 @@ export class ItemVisual {
     }
 
     public setInteractionEnabled(enabled: boolean): void {
+        this.interactionEnabled = enabled;
         if (this.rect.input) {
             // Keep hover hit testing available even when gameplay actions are locked.
-            this.rect.input.enabled = true;
-            if (this.rect.input.draggable !== enabled) {
-                this.scene.input.setDraggable(this.rect, enabled);
+            this.rect.input.enabled = this.isVisible;
+            const draggable = enabled && this.isVisible;
+            if (this.rect.input.draggable !== draggable) {
+                this.scene.input.setDraggable(this.rect, draggable);
             }
         }
+    }
+
+    public setVisible(visible: boolean): void {
+        if (!visible && this.isVisible) {
+            this.cancelGesture();
+            this.callbacks.onHoverEnd?.(this);
+        }
+        this.isVisible = visible;
+        this.rect.setVisible(visible);
+        this.image?.setVisible(visible);
+        this.text.setVisible(visible && this.image === null);
+        this.selectionGraphics.setVisible(visible);
+        this.connectionGraphics.setVisible(visible);
+        this.setInteractionEnabled(this.interactionEnabled);
+    }
+
+    public getOrientation(): number {
+        return this.artAngle / 90;
+    }
+
+    public restoreOrientation(turns: number): void {
+        const target = ((Math.trunc(turns) % 4) + 4) % 4;
+        const rotations = (target - this.getOrientation() + 4) % 4;
+        for (let i = 0; i < rotations; i++) {
+            this.itemModel.rotate();
+        }
+        this.artAngle = target * 90;
+        this.updateSize();
+        this.refresh();
     }
 
     public setPosition(x: number, y: number): void {
@@ -268,8 +299,8 @@ export class ItemVisual {
 
     public resetPosition(): void {
         this.setPosition(
-            Phaser.Math.Clamp(this.startX, SCRAP.x, SCRAP.x + Math.max(0, SCRAP.width - this.rect.width)),
-            Phaser.Math.Clamp(this.startY, SCRAP.y, SCRAP.y + Math.max(0, SCRAP.height - this.rect.height))
+            GROUND.x + Math.max(0, GROUND.width - this.rect.width) / 2,
+            GROUND.y + Math.max(0, GROUND.height - this.rect.height) / 2
         );
     }
 

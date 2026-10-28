@@ -8,7 +8,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:combat-ui": "node tests/combat-ui.mjs",
-    "test:visual": "node tests/combat-ui.mjs --visual-only"
+    "test:visual": "node tests/combat-ui.mjs --visual-only",
+    "test:exploration": "node tests/combat-ui.mjs --exploration-only"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

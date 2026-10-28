@@ -68,7 +68,7 @@ export async function runVisualPrototypeChecks({ evaluate, read, check, mouse, c
         await check(`['art-battery','art-gun'].map(id=>{const v=s.visualItemsMap.get(id);
             return [v.image.texture.key,v.image.input??null,v.text.visible];})`,
         [['item-weak-battery',null,false],['item-laser-pistol',null,false]],'art comes from definitions, not names');
-        await check(`['unknown','no-definition'].map(id=>{const v=s.visualItemsMap.get(id);return [v.image,v.text.visible];})`,
+        await check(`['unknown','no-definition'].map(id=>{const v=s.visualItemsMap.get(id);return [v.image,!!v.text.text];})`,
             [[null,true],[null,true]],'unknown and legacy definitions have labelled fallbacks');
         await click(325,175);
         await check(`(()=>{const v=s.visualItemsMap.get('art-gun');return [v.rect.isStroked,v.rect.strokeColor,
@@ -98,12 +98,12 @@ export async function runVisualPrototypeChecks({ evaluate, read, check, mouse, c
         const markerPixel = async id => {
             await delay(35);
             const clip=await read(`(()=>{const r=document.querySelector('canvas').getBoundingClientRect();
-                return {x:r.x,y:r.y,width:800,height:600,scale:1};})()`);
+                return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1};})()`);
             const screenshot=await send('Page.captureScreenshot',{format:'png',clip});
             return evaluate(`(async()=>{
                 const source=new Image();source.src='data:image/png;base64,${screenshot.data}';await source.decode();
                 const canvas=document.createElement('canvas');canvas.width=800;canvas.height=600;
-                const ctx=canvas.getContext('2d');ctx.drawImage(source,0,0);
+                const ctx=canvas.getContext('2d');ctx.drawImage(source,0,0,800,600);
                 const image=s.visualItemsMap.get('${id}').image;
                 const dx=image.width*.25*image.scaleX,dy=-image.height*.1*image.scaleY;
                 const x=image.x+dx*Math.cos(image.rotation)-dy*Math.sin(image.rotation);

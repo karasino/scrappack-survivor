@@ -56,7 +56,7 @@ export async function runPowerReasonChecks({ evaluate, read, check, mouse, click
     await check("tooltipTexts().includes('Connected batteries: 0')",true,'missing source count stays visible');
     await hover(375,175);
     await check('reasonLines()',[noSource],'placed armor without source');
-    await evaluate(`seed([{type:'weapon',id:'loot'}]);s.visualItemsMap.get('loot').setPosition(650,300)`);
+    await evaluate(`s.run.mode='exploration';seed([{type:'weapon',id:'loot'}]);s.groundPage=s.run.itemsAtHero().findIndex(i=>i.id==='loot');s.updateCombatUI();s.visualItemsMap.get('loot').setPosition(650,300)`);
     await hover(675,325);
     await check('reasonLines()',[],'normal loot does not warn about power');
     await check("tooltipTexts().includes('Connected batteries: 0')",true,'loot count remains zero');
@@ -78,10 +78,10 @@ export async function runPowerReasonChecks({ evaluate, read, check, mouse, click
     await evaluate("s.visualItemsMap.get('A').itemModel.charge=1");
     await waitFor(hasReason(weaponShortage),'warning returns after charge change');
     await check("s.visualItemsMap.get('gun').itemModel.connectedBatteries.length",1,'preview leaves connections unchanged');
-    await evaluate(`s.inventory.removeItem('A');s.visualItemsMap.get('A').resetPosition();s.refreshPowerGrid()`);
+    await evaluate(`s.run.putOnGround(s.visualItemsMap.get('A').itemModel);s.refreshPowerGrid()`);
     await waitFor(hasReason(noSource),'connection change updates visible reason');
     await check("tooltipTexts().includes('Connected batteries: 0')",true,'actual disconnection updates count');
-    await evaluate(`const source=s.visualItemsMap.get('A');source.itemModel.charge=4;
+    await evaluate(`const source=s.visualItemsMap.get('A');source.itemModel.charge=4;s.run.removeFromGround('A');
         s.inventory.placeItem(source.itemModel,0,0);source.setPosition(200,150);s.refreshPowerGrid()`);
     await waitFor('reasonLines().length===0','restoring connection clears warning');
     await check('[s.input.activePointer.x,s.input.activePointer.y]',pointer,'charge and connection changes need no pointer movement');
@@ -141,7 +141,7 @@ export async function runPowerReasonChecks({ evaluate, read, check, mouse, click
             && t.container.x>=8 && t.container.y>=8 && t.container.x+280<=792 && t.container.y+t.height<=592;
     })()`,true,'warning pool capacity, wrapping, full height and viewport bounds');
     const height = await read('s.itemTooltip.height');
-    const screenshot=await send('Page.captureScreenshot',{format:'png',clip:{x:8,y:8,width:800,height:600,scale:1}});
+    const screenshot=await send('Page.captureScreenshot',{format:'png',clip:await read(`(()=>{const r=s.game.canvas.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1};})()`)});
     await writeFile(join(tmpdir(),`scrappack-power-warning-${renderer}.png`),Buffer.from(screenshot.data,'base64'));
     await evaluate("s.visualItemsMap.get('A').itemModel.charge=3");
     await waitFor('reasonLines().length===0','fix clears warning and reflows visible panel');

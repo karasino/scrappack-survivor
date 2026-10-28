@@ -133,13 +133,14 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     await check('tooltipTexts()',['Copper Wire','Wire'],'wire has only heading');
     await hover(375,325);
     await check('tooltipTexts()',['Step-up Transformer','Transformer','Conversion: No conversion'],'transformer panel');
+    await evaluate("s.run.mode='exploration';s.groundPage=s.run.itemsAtHero().findIndex(i=>i.id==='bat');s.updateCombatUI();s.visualItemsMap.get('bat').setPosition(680,350)");
     await hover(710,375);
     await check('tooltipTexts().includes("Charge: 2 / 2")',true,'loot battery values');
     await check('s.itemTooltip===tooltipInstance && s.children.length=== '+children,true,'single reused panel');
     await evaluate("s.visualItemsMap.get('bat').itemModel.charge=0.005");
     await delay(50);
     await check('tooltipTexts().includes("Charge: <0.01 / 2") && tooltipTexts().includes("<1%")',true,'stationary tooltip refreshes tiny charge');
-    const snapshot = await send('Page.captureScreenshot',{format:'png',clip:{x:8,y:8,width:800,height:600,scale:1}});
+    const snapshot = await send('Page.captureScreenshot',{format:'png',clip:await read(`(()=>{const r=s.game.canvas.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1};})()`)});
     await writeFile(join(tmpdir(),`scrappack-tooltip-${renderer}.png`),Buffer.from(snapshot.data,'base64'));
 
     await mouse('mouseMoved',100,100);
@@ -167,15 +168,18 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     await check('!s.itemTooltip.visible && s.tooltipTimer===null',true,'gameout hides tooltip');
     await restart();
 
-    // Hit testing must choose the item with the same order as Phaser rendering.
-    await evaluate(`seed([{type:'wire',id:'under'},{type:'armor',id:'over'}]);
-        s.visualItemsMap.get('under').setPosition(600,280);s.visualItemsMap.get('over').setPosition(600,280)`);
-    await hover(625,305);
-    await check('tooltipTexts()[0]','Makeshift Vest','overlapping loot chooses top item');
+    // The new ground panel exposes one model-owned item at a time.
+    await evaluate(`s.run.mode='exploration';seed([{type:'wire',id:'under'},{type:'armor',id:'over'}]);
+        s.groundPage=s.run.itemsAtHero().findIndex(i=>i.id==='over');s.updateCombatUI()`);
+    let groundPoint=await read("(()=>{const r=s.visualItemsMap.get('over').rect;return [r.x+10,r.y+10]})()");
+    await hover(...groundPoint);
+    await check('tooltipTexts()[0]','Makeshift Vest','current ground page is viewable');
+    await check("s.visualItemsMap.get('under').rect.visible||s.visualItemsMap.get('under').rect.input.enabled",false,'other ground page cannot receive input');
     await mouse('mouseMoved',100,100);
-    await evaluate(`s.visualItemsMap.get('over').destroy()`);
-    await hover(625,305);
-    await check('tooltipTexts()[0]','Copper Wire','underlying item remains viewable');
+    await evaluate("s.groundPage=s.run.itemsAtHero().findIndex(i=>i.id==='under');s.updateCombatUI()");
+    groundPoint=await read("(()=>{const r=s.visualItemsMap.get('under').rect;return [r.x+10,r.y+10]})()");
+    await hover(...groundPoint);
+    await check('tooltipTexts()[0]','Copper Wire','switching ground page preserves earlier item');
     await restart();
 
     // Changes to the actual power grid must update the active stat without a new hover.
@@ -207,11 +211,11 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     // Use real browser movement and rotation. Pixel probes verify the rendered arrow on each side.
     const arrowPixels = async () => {
         await delay(35);
-        const screenshot=await send('Page.captureScreenshot',{format:'png',clip:{x:8,y:8,width:800,height:600,scale:1}});
+        const screenshot=await send('Page.captureScreenshot',{format:'png',clip:await read(`(()=>{const r=s.game.canvas.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1};})()`)});
         return evaluate(`(async () => {
             const image=new Image();image.src='data:image/png;base64,${screenshot.data}';await image.decode();
             const canvas=document.createElement('canvas');canvas.width=800;canvas.height=600;
-            const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0);
+            const ctx=canvas.getContext('2d');ctx.drawImage(image,0,0,800,600);
             const v=s.visualItemsMap.get('conductor'),r=v.rect,m=v.itemModel;
             const sides=m.type==='wire'?m.connectionPorts:[m.inputDir,m.outputDir];
             return sides.map(side=>{

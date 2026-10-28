@@ -20,7 +20,7 @@ export async function captureVisualScenarios({ evaluate, read, mouse, click, res
     const capture = async name => {
         await delay(150);
         const clip = await read(`(() => {const r=document.querySelector('canvas').getBoundingClientRect();
-            return {x:r.x,y:r.y,width:800,height:600,scale:1};})()`);
+            return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1};})()`);
         const screenshot = await send('Page.captureScreenshot', { format: 'png', clip });
         await writeFile(join(directory, `${renderer}-${name}.png`), Buffer.from(screenshot.data, 'base64'));
     };

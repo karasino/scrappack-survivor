@@ -26,14 +26,15 @@ export class CombatEngine {
         playerMaxHp: number,
         enemyMaxHp: number,
         enemyBaseDamage: number,
-        enemyName: string
+        enemyName: string,
+        initialPlayerHp: number = playerMaxHp
     ) {
         this.inventory = inventory;
         this.playerMaxHp = Math.max(0, playerMaxHp);
         this.enemyMaxHp = Math.max(0, enemyMaxHp);
         this.enemyBaseDamage = Math.max(0, enemyBaseDamage);
         this.enemyName = enemyName;
-        this.playerHp = this.playerMaxHp;
+        this.playerHp = Math.min(this.playerMaxHp, Math.max(0, initialPlayerHp));
         this.enemyHp = this.enemyMaxHp;
     }
 
