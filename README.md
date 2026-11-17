@@ -47,10 +47,10 @@ npm run dev
 
 [Workflow](.github/workflows/ci.yml) запускается для pull request, push в `main` и вручную через Actions. На отдельных Ubuntu 24.04 runners выполняются `Core, harness and build` и `Browser UI (WebGL and Canvas)`: собственные `npm ci`, Node 24, закреплённый Chrome for Testing в браузерном задании. Полный `check` внутри CI дополнительно не вызывается.
 
-Логи установки и `Doctor` доступны в шагах; браузерные JSON/PNG загружаются в `diagnostics-browser-<run_id>-<attempt>` на семь дней. При раннем сбое PNG может отсутствовать; первичная ошибка остаётся в логе. Обновление Chrome и проверки отказа описаны [в verification](docs/verification.md). Workflow подготовлен локально; прогоны GitHub ещё ожидаются.
+Логи установки и `Doctor` доступны в шагах; браузерные JSON/PNG загружаются в `diagnostics-browser-<run_id>-<attempt>` на семь дней. При раннем сбое PNG может отсутствовать; первичная ошибка остаётся в логе. Обновление Chrome и проверки отказа описаны [в verification](docs/verification.md). Workflow опубликован и принят; ссылки на GitHub-прогоны и подтверждение приёмки — [в задаче CI](docs/tasks/done/2026-11-17-ci-checks.md).
 
 ## Контекст разработки
 
 Начать с [AGENTS.md](AGENTS.md) и [текущего состояния](docs/status.md). Планы и приёмка хранятся [в файлах задач](docs/tasks/README.md). Документы по механикам открываются по ссылкам из AGENTS.md, а не все сразу.
 
-[Независимые core-тесты](docs/tasks/done/2026-11-17-core-tests.md) приняты. Активная задача — [CI на чистом checkout](docs/tasks/active/2026-11-17-ci-checks.md); локальный workflow реализован, удалённые проверки и приёмка ожидаются. Дальнейшие рекомендации — [roadmap harness](docs/harness-roadmap.md).
+[Независимые core-тесты](docs/tasks/done/2026-11-17-core-tests.md) и [CI на чистом checkout](docs/tasks/done/2026-11-17-ci-checks.md) приняты. Для новой сессии согласован [план запуска воспроизводимых ситуаций](docs/tasks/active/2026-11-17-reproducible-scenarios.md); реализация ещё не начата. Следующие этапы и их польза — [roadmap harness](docs/harness-roadmap.md).
