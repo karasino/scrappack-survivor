@@ -99,6 +99,9 @@ jobs:
           echo "CHROME_BIN=$chrome_bin" >> "$GITHUB_ENV"
       - name: Doctor
         run: npm run doctor
+      - name: Reproducible scenarios
+        timeout-minutes: 5
+        run: npm run test:scenarios
       - name: Combat UI
         timeout-minutes: 5
         run: npm run test:combat-ui

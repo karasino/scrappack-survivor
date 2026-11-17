@@ -33,8 +33,7 @@ export async function runPowerReasonChecks({ evaluate, read, check, mouse, click
     await check("tooltipTexts().includes('Connected batteries: 0')",true,'loot count remains zero');
     await restart();
 
-    await evaluate(`seed([{type:'battery',id:'A',x:0,y:0,charge:1},
-        {type:'transformer',id:'transformer',x:1,y:0},{type:'weapon',id:'gun',x:2,y:0}])`);
+    await evaluate('seedTransformerChain(1)');
     await click(325,175);
     await hover(325,175);
     await check('reasonLines()',[weaponShortage],'connected but insufficient weapon');

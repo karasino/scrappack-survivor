@@ -10,8 +10,7 @@ export async function runEnergyPlanChecks({ evaluate, read, check, mouse, click,
         await waitFor('s.itemTooltip.visible','tooltip');
     };
     const activeLine = `s.itemTooltip.labels.filter(l=>l.visible).find(l=>l.text.startsWith('►')).text`;
-    const seedChain = charge => evaluate(`seed([{type:'battery',id:'A',x:0,y:0,charge:${charge}},
-        {type:'transformer',id:'transformer',x:1,y:0},{type:'weapon',id:'gun',x:2,y:0}])`);
+    const seedChain = charge => evaluate(`seedTransformerChain(${charge})`);
     await restart();
     for(const charge of [1,3,4,5]) {
         await seedChain(charge);

@@ -2,7 +2,7 @@
 
 ## Окружение и команды
 
-Установка описана в [README](../README.md). `npm run check` последовательно выполняет doctor, check:docs, test:core, test:harness, build, test:combat-ui, test:exploration, test:crafting. Отдельный test:visual не повторяется: входит в боевой набор. Не запускать игровые наборы параллельно: общий порт 4175.
+Установка описана в [README](../README.md). `npm run check` последовательно выполняет doctor, check:docs, test:core, test:harness, build, test:scenarios, test:combat-ui, test:exploration, test:crafting. Отдельный test:visual не повторяется: входит в боевой набор. Не запускать игровые наборы параллельно: общий порт 4175.
 
 В процессе работы выбирать затронутые наборы. Полный check нужен перед ручной приёмкой изменения игрового кода и при изменении самого harness. После записи подтверждения пользователя достаточно check:docs, если код не менялся.
 
@@ -14,12 +14,12 @@
 | Сырьё, компоненты, рецепты, лечение, награды | Сначала test:core, затем test:crafting |
 | Владение предметами, режимы RunState, общие блокировки | test:core и затронутые UI-наборы, при сомнении полный check |
 | Только документы/приёмка | check:docs |
-| Диагностика/runner/валидатор | test:harness и полный check |
+| Диагностика/runner/валидатор | test:harness; для launcher также test:scenarios; затем полный check |
 | CI workflow/окружение | actionlint, чистые npm ci/check, GitHub success и контролируемый failure с JSON/PNG |
 
 ## GitHub Actions
 
-[CI](../.github/workflows/ci.yml) содержит два независимых задания на `ubuntu-24.04`, Node берётся из `.nvmrc`. В каждом свой checkout и `npm ci`; npm cache хранит загрузки по lockfile. `Core, harness and build` исполняет check:docs → test:core → test:harness → build без установки Chrome и вызова doctor. `Browser UI (WebGL and Canvas)` устанавливает библиотеки Ubuntu и Chrome for Testing **157.0.8103.78** linux64, экспортирует `CHROME_BIN`, затем исполняет doctor → test:combat-ui → test:exploration → test:crafting. Это последовательные команды на одном runner; seed 123 остаётся только в core, отдельного test:visual/check в CI нет.
+[CI](../.github/workflows/ci.yml) содержит два независимых задания на `ubuntu-24.04`, Node берётся из `.nvmrc`. В каждом свой checkout и `npm ci`; npm cache хранит загрузки по lockfile. `Core, harness and build` исполняет check:docs → test:core → test:harness → build без установки Chrome и вызова doctor. `Browser UI (WebGL and Canvas)` устанавливает библиотеки Ubuntu и Chrome for Testing **157.0.8103.78** linux64, экспортирует `CHROME_BIN`, затем исполняет doctor → test:scenarios → test:combat-ui → test:exploration → test:crafting. Это последовательные команды на одном runner; seed 123 остаётся только в core, отдельного test:visual/check в CI нет.
 
 Триггеры: pull_request, push в main, workflow_dispatch. Устаревшие запуски отменяются в пределах события и ветки/номера PR; разные PR не смешиваются. Права — только contents: read; checkout не сохраняет credentials. Actions закреплены SHA официальных релизов [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1), [setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0), [upload-artifact v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2). Реальные Node/npm/Chrome версии видны в логах. Код возврата каждой команды сохраняется; после ошибки последующие обычные шаги пропускаются. Пределы jobs: 15 минут для правил, 25 для браузера; установка и каждый browser-набор ограничены пятью минутами, upload — тремя. Внутренний предел browser runner — 240 секунд с ограниченной диагностикой/очисткой, что оставляет время до остановки шага.
 
@@ -100,6 +100,21 @@ Runner ограничивает startup, каждую CDP-команду, общ
 При ожидании готовности Vite ANSI-коды удаляются только из строки для сопоставления адреса: цветной вывод CI может вставлять их между хостом и портом. Исходный stdout остаётся в диагностике. Это покрыто отдельным harness-тестом с реальным дочерним процессом.
 
 Обычные снимки: `artifacts/crafting/`, `artifacts/exploration/`, `artifacts/ui-feedback/`. Снимки визуального прототипа: `SCRAPPACK_VISUAL_CAPTURE=after npm run test:combat-ui`, каталог `artifacts/visual-prototype/after/`. Эти каталоги не коммитятся.
+
+## Воспроизводимые ситуации
+
+`npm run scenario -- <id> [--renderer webgl|canvas]` запускает один сценарий в видимом Chrome; renderer по умолчанию `webgl`. Для остановки — Enter в терминале, Ctrl+C либо закрытие игровой вкладки/окна. Новый запуск той же команды восстанавливает фикстуру; refresh страницы начинает обычный забег. Ошибки старта ограничены общим пределом 60 секунд и отдельными CDP/startup-пределами; после `READY` лимита времени для ручных действий нет. Launcher владеет только собственными process groups и временным профилем. При занятом порте 4175 он не завершает его владельца.
+
+Подготовка находится в [browser-fixtures](../tests/browser-fixtures.mjs), общий launcher — [scenario](../scripts/scenario.mjs); production их не импортирует. Она повторно использует `seed`/`freshRun`/`reset` из UI-проверок, создаёт модели каталога и вызывает команды core. Это явные тестовые фикстуры, не replay прохождения. Оба сценария имеют seed **170117**, world turn **0**, начальную ориентацию всех предметов **0**, пустые материалы и землю. В бою мир и RNG заморожены. Координаты ниже — `(столбец, строка)` от нуля.
+
+| ID | Исходное состояние | Проверка обычным управлением |
+| --- | --- | --- |
+| `transformer-chain` | Специальная сетка **6 × 6**, HP **100/100**, авторский Rad-Scorpion **50/50**, урон **12**. Weak Battery `(0,0)`, заряд **5/5**; Step-up Transformer `(1,0)`; Laser Pistol `(2,0)`. Ничего не выбрано. Встреча создаётся через beginEncounter с явно заданными HP/уроном. | Выбрать Laser Pistol, навести курсор: `► Powered damage: 22`. `END TURN`: враг **28/50**, герой **88/100**, заряд **1/5**. Tooltip теперь `► Base damage: 4`, `! Insufficient charge for powered damage.` Следующий `END TURN`: враг **24/50**, герой **76/100**, заряд остаётся **1/5**. |
+| `combat-heal` | Обычная сетка **4 × 4**, HP **60/100**, Rad-Scorpion **24/24**, урон **8**. Heavy Battery `(0,0)`, заряд **12/12**; Laser Pistol `(2,0)`; Weak Battery `(0,2)`, заряд **5/5**; Makeshift Vest `(1,2)`; Medkit `(0,1)`. Оружие и броня выбраны. Подготовка — стартовый набор RunState, затем HP 60 и beginEncounter со scorpion. | `HEAL +25 (1)`: один Medkit израсходован, HP **85/100**, враг остаётся **24/24**, один ход. Его ответ **8** блокирует щит **8**; Weak Battery **4/5**, Heavy Battery **12/12**. `HEAL +25 (0)` недоступна; повторный клик не меняет состояние. |
+
+Drag снимает выбор и извлекает предмет из сети: исчезновение усиления ожидаемо. До завершения переноса атака и лечение заблокированы. R вращает предмет; отказ у края GROUND, blur и resize восстанавливают исходное положение/ориентацию. После возврата оружие нужно выбрать заново. Обычный индикатор оборудования показывает план атаки; HEAL строит отдельный план только брони. Лечение тратит ход, а смертельный выстрел не отменяет ответ врага.
+
+`npm run test:scenarios` проверяет обе пары renderer/ID с настоящим Chrome и повторным запуском, исходный состав/координаты/выбор/заряд/HP/бой, обычный ввод, отмену с R, край панели, blur, compact/resize, нехватку заряда и отказ HEAL. Полный HP в бою проверяется отдельно управляемой фикстурой: один Medkit не позволяет достичь этой границы обычными действиями сценария. Набор также проверяет закрытие вкладки при незавершённом callback, двойной stop, занятый порт, отсутствие Chrome, startup timeout, ошибку с JSON/PNG и SIGINT; профиль удаляется, порт освобождается. Детальные assertions механик остаются в core и существующих UI-наборах; полный seed 123 не повторяется.
 
 ## Ручной чек-лист
 

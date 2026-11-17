@@ -158,7 +158,7 @@ for (const failure of ['check:docs', 'test:core', null]) test(`aggregate check: 
     t.after(() => stopOwnedProcess(state, 100));
     const deadline = Date.now() + 5000;
     while (!state.exited && Date.now() < deadline) await delay(20);
-    const steps = ['doctor', 'check:docs', 'test:core', 'test:harness', 'build', 'test:combat-ui', 'test:exploration', 'test:crafting'];
+    const steps = ['doctor', 'check:docs', 'test:core', 'test:harness', 'build', 'test:scenarios', 'test:combat-ui', 'test:exploration', 'test:crafting'];
     assert.equal(state.code, failure ? 7 : 0);
     assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line)),
         failure ? steps.slice(0, steps.indexOf(failure) + 1) : steps);

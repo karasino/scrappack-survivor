@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { repositoryRoot } from './doctor.mjs';
 
-const steps = ['doctor', 'check:docs', 'test:core', 'test:harness', 'build', 'test:combat-ui', 'test:exploration', 'test:crafting'];
+const steps = ['doctor', 'check:docs', 'test:core', 'test:harness', 'build', 'test:scenarios', 'test:combat-ui', 'test:exploration', 'test:crafting'];
 
 for (const step of steps) {
     console.log(`\n[check] Running ${step}`);

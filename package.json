@@ -14,8 +14,10 @@
     "doctor": "node scripts/doctor.mjs",
     "check:docs": "node scripts/check-docs.mjs",
     "test:core": "node --import=tsx --test --test-timeout=15000 tests/core/inventory.test.mjs tests/core/energy-combat.test.mjs tests/core/exploration.test.mjs tests/core/crafting.test.mjs tests/core/run.test.mjs",
-    "test:harness": "node --test --test-timeout=15000 tests/harness.test.mjs",
-    "check": "node scripts/check.mjs"
+    "test:harness": "node --test --test-timeout=15000 tests/harness.test.mjs tests/scenario.test.mjs",
+    "check": "node scripts/check.mjs",
+    "scenario": "node scripts/scenario.mjs",
+    "test:scenarios": "node tests/scenario-checks.mjs"
   },
   "devDependencies": {
     "tsx": "4.21.0",

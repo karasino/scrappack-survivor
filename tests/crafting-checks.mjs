@@ -114,7 +114,7 @@ export async function runCraftingChecks({ evaluate, read, check, mouse, click, s
     await capture('wide-aid-station');
 
     await evaluate('freshRun()');await viewport(1366,650);
-    await evaluate("s.run.playerHp=60;s.run.beginEncounter(s.run.enemies.find(e=>e.kind==='scorpion').id);s.combatEngine=s.run.combatEngine;s.backpackView=true;s.updateCombatUI()");
+    await evaluate('prepareCombatHeal()');
     const healingState=await read('({enemy:s.combatEngine.enemyHp,high:s.inventory.items.find(i=>i.type==="battery"&&i.voltageType==="high").charge,low:s.inventory.items.find(i=>i.type==="battery"&&i.voltageType==="low").charge,world:s.run.worldTurn})');
     await button('s.healButton');
     await check('[s.run.playerHp,s.combatEngine.playerHp,s.combatEngine.enemyHp,s.inventory.items.filter(i=>i.definitionId==="medkit").length]',[85,85,healingState.enemy,0],'HEAL replaces attack and synchronizes HP');

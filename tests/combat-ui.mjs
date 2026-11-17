@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { spawnCaptured, awaitReady, createCdp, stopOwnedProcess, writeFailureArtifacts } from './browser-harness.mjs';
+import { browserFixtureSource } from './browser-fixtures.mjs';
 import { runTask4Checks } from './task4-checks.mjs';
 import { runEnergyPlanChecks } from './energy-plan-checks.mjs';
 import { runPowerReasonChecks } from './power-reason-checks.mjs';
@@ -92,54 +93,7 @@ try {
             if (await evaluate(`location.origin === '${origin}' && document.readyState === 'complete'`)) break;
             await delay(30);
         }
-        const ready = await evaluate(`(async () => {
-            const { game } = await import('/src/game/main.ts');
-            const { Item } = await import('/src/game/core/Item.ts');
-            const { LootTable } = await import('/src/game/core/LootTable.ts');
-            const { CombatEngine } = await import('/src/game/core/CombatEngine.ts');
-            const { UITheme } = await import('/src/game/ui/UITheme.ts');
-            globalThis.uiTheme=UITheme;
-            for (let i = 0; i < 100 && !game.scene.isActive('GameScene'); i++) {
-                await new Promise(r => setTimeout(r, 20));
-            }
-            globalThis.s = game.scene.getScene('GameScene');
-            globalThis.seed = (items) => {
-                for (const config of items) {
-                    const base = LootTable.find(item => item.type === config.type);
-                    const item = new Item({ ...base, ...config });
-                    if (config.x !== undefined) {
-                        if (!s.inventory.placeItem(item, config.x, config.y)) throw Error('Invalid fixture placement');
-                    }
-                    s.addItemVisual(item);
-                    if (config.x !== undefined) s.visualItemsMap.get(item.id).setPosition(200 + 50 * config.x, 150 + 50 * config.y);
-                }
-                s.refreshPowerGrid();
-                s.updateCombatUI();
-            };
-            globalThis.freshRun = async () => {
-                const previous = s.run;
-                s.scene.restart();
-                for (let i = 0; i < 100 && (s.run === previous || !s.sys.isActive() || !s.endTurnButton?.input || s.endTurnButton.scene!==s); i++) await new Promise(r => setTimeout(r, 20));
-                if (s.run === previous || !s.endTurnButton?.input || s.endTurnButton.scene!==s) throw Error('Scene did not finish restarting');
-                s.backpackView=true;s.applyLayout();
-            };
-            globalThis.reset = async () => {
-                await freshRun();
-                // Legacy combat fixtures exercise the complete 6 × 6 network.
-                // Actual new runs remain restricted to their real 4 × 4 start.
-                s.inventory.expandTo(6,6);
-                for(const v of Array.from(s.visualItemsMap.values()))v.destroy();
-                for(const item of [...s.inventory.items])s.inventory.removeItem(item.id);
-                s.run.groundItems?.clear();
-                s.run.beginEncounter(s.run.enemies[0].id);
-                s.combatEngine=new CombatEngine(s.inventory,100,50,12,'Rad-Scorpion');
-                s.battleState='active';s.completedTurns=0;s.messages=[];
-                s.appendMessage('Select a weapon to begin.');
-                seed([{id:'scrap_battery_01',definitionId:'rusty_battery',name:'Rusty Battery',type:'battery'}]);
-                s.updateCombatUI();
-            };
-            return game.renderer.type;
-        })()`);
+        const ready = await evaluate(browserFixtureSource);
         assert.equal(ready, renderer === 'webgl' ? 2 : 1, `${renderer}: renderer`);
         let heldButtons = 0;
         const mouse = async (type, x, y, button = 'left') => {
