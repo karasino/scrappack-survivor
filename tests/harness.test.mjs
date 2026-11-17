@@ -173,6 +173,13 @@ test('startup reports child exit code and stderr; silent startup is bounded', as
     await assert.rejects(awaitReady(silent, 'READY', { timeoutMs: 60 }), /timed out/);
 });
 
+test('startup recognizes ANSI-colored URLs and preserves raw diagnostics', async t => {
+    const output = '\x1b[36mhttp://127.0.0.1:\x1b[1m4175\x1b[22m/\x1b[39m\n';
+    const state = fixtureProcess(t, `process.stdout.write(${JSON.stringify(output)});setInterval(()=>{},1000)`);
+    await awaitReady(state, 'http://127.0.0.1:4175', { timeoutMs: 2000 });
+    assert.equal(state.stdout, output);
+});
+
 test('cleanup kills an owned process that ignores SIGTERM', async t => {
     const state = fixtureProcess(t, 'process.on("SIGTERM",()=>{});setInterval(()=>{},1000);console.log("READY")');
     await awaitReady(state, 'READY');

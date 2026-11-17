@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { stripVTControlCharacters } from 'node:util';
 
 export function spawnCaptured(label, command, args, options = {}) {
     const grouped = process.platform !== 'win32' && options.detached !== false;
@@ -22,7 +23,7 @@ export async function awaitReady(state, expected, { timeoutMs = 15_000, signal }
             const reason = state.error?.code ?? `exit ${state.code}, signal ${state.signal}`;
             throw new Error(`${state.label} startup failed (${reason}).\n${state.stderr || state.stdout}`);
         }
-        if (state.stdout.includes(expected)) return;
+        if (stripVTControlCharacters(state.stdout).includes(expected)) return;
         if (Date.now() >= deadline) throw new Error(`${state.label} startup timed out after ${timeoutMs} ms.\n${state.stderr || state.stdout}`);
         await delay(20);
     }
