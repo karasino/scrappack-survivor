@@ -1,12 +1,11 @@
 // Integration checks use real Phaser rendering and browser input; no production test hooks.
-// Requires Chrome (or CHROME_BIN) and Node 22+.
+// Requires Chrome (or CHROME_BIN) and Node 24.x.
 import assert from 'node:assert/strict';
-import { spawn } from 'node:child_process';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { once } from 'node:events';
 import { setTimeout as delay } from 'node:timers/promises';
+import { spawnCaptured, awaitReady, createCdp, stopOwnedProcess, writeFailureArtifacts } from './browser-harness.mjs';
 import { runTask4Checks } from './task4-checks.mjs';
 import { runEnergyPlanChecks } from './energy-plan-checks.mjs';
 import { runPowerReasonChecks } from './power-reason-checks.mjs';
@@ -16,63 +15,58 @@ import { runExplorationChecks } from './exploration-checks.mjs';
 import { runCraftingChecks } from './crafting-checks.mjs';
 import { runItemFeedbackChecks } from './ui-feedback-checks.mjs';
 
-const profile = await mkdtemp(join(tmpdir(), 'scrappack-ui-'));
 const origin = 'http://127.0.0.1:4175';
-const server = spawn(process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1',
-    '--port', '4175', '--strictPort'], { stdio: ['ignore', 'pipe', 'pipe'] });
+let profile;
+let server;
 let chrome;
 let cdp;
-const pending = new Map();
+let transport;
+let currentRenderer = 'startup';
+let currentCheck = 'start Vite';
+let activeSessionId;
+let runFailed = false;
+let closing = false;
+const controller = new AbortController();
 const browserErrors = [];
-const timeout = setTimeout(() => {
-    console.error('Browser checks exceeded 240 seconds.');
-    server.kill();
-    chrome?.kill();
-    process.exitCode = 1;
-}, 240_000);
+const timeout = setTimeout(() => controller.abort(new Error('Browser checks exceeded 240 seconds.')), 240_000);
+const interrupt = () => controller.abort(new Error('Browser checks interrupted by SIGINT.'));
+const terminate = () => controller.abort(new Error('Browser checks interrupted by SIGTERM.'));
+process.once('SIGINT', interrupt);
+process.once('SIGTERM', terminate);
+const watchProcess = state => state.child.once('exit', (code, signal) => {
+    if (!closing) controller.abort(new Error(`${state.label} exited unexpectedly: code=${code}, signal=${signal}.\n${state.stderr || state.stdout}`));
+});
 
 try {
-    await new Promise((resolve, reject) => {
-        server.stdout.on('data', data => { if (data.toString().includes(origin)) resolve(); });
-        server.stderr.on('data', data => process.stderr.write(data));
-        server.once('error', reject);
-        server.once('exit', code => reject(new Error(`Vite exited: ${code}`)));
-    });
-    chrome = spawn(process.env.CHROME_BIN || 'google-chrome', [
+    profile = await mkdtemp(join(tmpdir(), 'scrappack-ui-'));
+    server = spawnCaptured('Vite', process.execPath, ['node_modules/vite/bin/vite.js', '--host', '127.0.0.1',
+        '--port', '4175', '--strictPort']);
+    watchProcess(server);
+    await awaitReady(server, origin, { signal: controller.signal });
+    currentCheck = 'start Chrome';
+    chrome = spawnCaptured('Chrome', process.env.CHROME_BIN || 'google-chrome', [
         '--headless=new', '--no-sandbox', '--disable-dev-shm-usage',
         '--use-gl=angle', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
         '--remote-debugging-pipe', `--user-data-dir=${profile}`
-    ], { stdio: ['ignore', 'ignore', 'ignore', 'pipe', 'pipe'] });
-    let serial = 0;
-    let buffer = '';
-    chrome.stdio[4].on('data', chunk => {
-        buffer += chunk;
-        let end;
-        while ((end = buffer.indexOf('\0')) !== -1) {
-            const message = JSON.parse(buffer.slice(0, end));
-            buffer = buffer.slice(end + 1);
-            if (message.id) {
-                const callback = pending.get(message.id);
-                pending.delete(message.id);
-                callback?.(message);
-            } else if (message.method === 'Runtime.exceptionThrown') {
-                browserErrors.push(message.params.exceptionDetails);
-            }
+    ], { stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe'] });
+    watchProcess(chrome);
+    transport = createCdp(chrome.child, {
+        signal: controller.signal,
+        context: () => `${currentRenderer}: ${currentCheck}`,
+        onEvent: message => {
+            if (message.method === 'Runtime.exceptionThrown') browserErrors.push(message.params.exceptionDetails);
         }
     });
-    cdp = (method, params = {}, sessionId) => new Promise((resolve, reject) => {
-        const id = ++serial;
-        pending.set(id, result => result.error ? reject(new Error(JSON.stringify(result.error))) : resolve(result.result));
-        chrome.stdio[3].write(JSON.stringify({ id, method, params, sessionId }) + '\0');
-    });
-    chrome.on('error', error => {
-        for (const callback of pending.values()) callback({ error: { message: error.message } });
-        pending.clear();
-    });
+    cdp = transport.send;
 
     for (const renderer of ['webgl', 'canvas']) {
+        currentRenderer = renderer;
+        currentCheck = 'create browser page';
+        activeSessionId = undefined;
         const { targetId } = await cdp('Target.createTarget', { url: 'about:blank' });
         const { sessionId } = await cdp('Target.attachToTarget', { targetId, flatten: true });
+        activeSessionId = sessionId;
+        currentCheck = 'load game and test fixtures';
         const send = (method, params) => cdp(method, params, sessionId);
         const evaluate = async expression => {
             const result = await send('Runtime.evaluate', { expression, awaitPromise: true, returnByValue: true });
@@ -162,18 +156,22 @@ try {
             await mouse('mouseReleased', x, y, button);
         };
         const read = expression => evaluate(`(${expression})`);
-        const check = async (expression, expected, label) => assert.deepEqual(await read(expression), expected, `${renderer}: ${label}`);
+        const check = async (expression, expected, label) => {
+            currentCheck = label;
+            assert.deepEqual(await read(expression), expected, `${renderer}: ${label}`);
+        };
+        const group = async (name, run) => { currentCheck = name; return run(); };
         const frame = () => delay(35);
         const restart = () => evaluate('reset()');
 
         if (process.argv.includes('--crafting-only')) {
-            await runCraftingChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+            await group('crafting core/UI and full run (seed 123)', () => runCraftingChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
             await cdp('Target.closeTarget',{targetId});
             continue;
         }
 
         if (process.argv.includes('--exploration-only')) {
-            await runExplorationChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+            await group('exploration core/UI and full run (seed 123)', () => runExplorationChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
             await cdp('Target.closeTarget',{targetId});
             continue;
         }
@@ -182,8 +180,8 @@ try {
             process.env.SCRAPPACK_VISUAL_CAPTURE);
 
         if (process.argv.includes('--visual-only')) {
-            await runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
-            await runItemFeedbackChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+            await group('visual prototype', () => runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+            await group('item feedback', () => runItemFeedbackChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
             await cdp('Target.closeTarget',{targetId});
             continue;
         }
@@ -355,11 +353,11 @@ try {
         await check('[s.playerHpFill.visible,s.enemyHpFill.visible]',[false,false],'zero maximum health');
         await restart();
 
-        await runTask4Checks({ evaluate,read,check,mouse,click,restart,send,renderer });
-        await runEnergyPlanChecks({ evaluate,read,check,mouse,click,restart,renderer });
-        await runPowerReasonChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
-        await runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
-        await runItemFeedbackChecks({ evaluate,read,check,mouse,click,restart,send,renderer });
+        await group('tooltips and connection arrows', () => runTask4Checks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+        await group('energy allocation and transformer chain', () => runEnergyPlanChecks({ evaluate,read,check,mouse,click,restart,renderer }));
+        await group('power shortage reasons', () => runPowerReasonChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+        await group('visual prototype', () => runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+        await group('item feedback', () => runItemFeedbackChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
 
         const listeners = await read(`({children:s.children.length,up:s.input.listenerCount('pointerup'),
             move:s.input.listenerCount('pointermove'),rotate:s.input.keyboard.listenerCount('keydown-R'),
@@ -376,14 +374,35 @@ try {
         console.log(`PASS ${renderer}: selection, gestures, combat, energy, terminal states, errors, log, restart`);
         await cdp('Target.closeTarget',{targetId});
     }
+    currentCheck = 'no uncaught browser errors';
     assert.deepEqual(browserErrors, [], 'No uncaught browser errors');
+    if (controller.signal.aborted) throw controller.signal.reason;
+} catch (error) {
+    runFailed = true;
+    console.error(`FAIL ${currentRenderer}: ${currentCheck}: ${error.message}`);
+    try {
+        const directory = await writeFailureArtifacts({ error, renderer: currentRenderer, currentCheck,
+            server, chrome, transport, sessionId: activeSessionId, browserErrors });
+        console.error(`Failure artifacts: ${directory}`);
+    } catch (artifactError) { console.error(`Could not save failure artifacts: ${artifactError.message}`); }
+    process.exitCode = 1;
 } finally {
+    closing = true;
     clearTimeout(timeout);
-    if (chrome && chrome.exitCode === null) {
-        const exited = once(chrome, 'exit');
-        await cdp?.('Browser.close').catch(() => {});
-        await exited;
+    process.off('SIGINT', interrupt);
+    process.off('SIGTERM', terminate);
+    controller.abort(new Error('Browser checks finished.'));
+    if (chrome?.child.pid && !chrome.exited) {
+        await cdp?.('Browser.close', {}, undefined, { timeoutMs: 500, signal: null }).catch(() => {});
     }
-    server.kill();
-    await rm(profile, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+    for (const state of [chrome, server]) {
+        try { await stopOwnedProcess(state); }
+        catch (error) { console.error(`Cleanup failed: ${error.message}`); process.exitCode = 1; }
+    }
+    transport?.dispose();
+    if (profile) {
+        try { await rm(profile, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 }); }
+        catch (error) { console.error(`Profile cleanup failed (${error.code}).`); process.exitCode = 1; }
+    }
+    if (!runFailed && process.exitCode) console.error('Checks completed but cleanup failed.');
 }

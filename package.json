@@ -10,7 +10,11 @@
     "test:combat-ui": "node tests/combat-ui.mjs",
     "test:visual": "node tests/combat-ui.mjs --visual-only",
     "test:exploration": "node tests/combat-ui.mjs --exploration-only",
-    "test:crafting": "node tests/combat-ui.mjs --crafting-only"
+    "test:crafting": "node tests/combat-ui.mjs --crafting-only",
+    "doctor": "node scripts/doctor.mjs",
+    "check:docs": "node scripts/check-docs.mjs",
+    "test:harness": "node --test --test-timeout=15000 tests/harness.test.mjs",
+    "check": "node scripts/check.mjs"
   },
   "devDependencies": {
     "typescript": "~6.0.2",
@@ -18,5 +22,8 @@
   },
   "dependencies": {
     "phaser": "^4.2.1"
+  },
+  "engines": {
+    "node": "24.x"
   }
 }
