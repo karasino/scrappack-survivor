@@ -43,3 +43,5 @@ npm run dev
 ## Контекст разработки
 
 Начать с [AGENTS.md](AGENTS.md) и [текущего состояния](docs/status.md). Планы и приёмка хранятся [в файлах задач](docs/tasks/README.md). Документы по механикам открываются по ссылкам из AGENTS.md, а не все сразу.
+
+Следующий согласованный этап — [независимые core-тесты](docs/tasks/active/2026-11-17-core-tests.md), пока только план. Дальнейшие рекомендации — [roadmap harness](docs/harness-roadmap.md).
