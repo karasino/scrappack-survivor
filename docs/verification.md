@@ -15,6 +15,19 @@
 | Владение предметами, режимы RunState, общие блокировки | test:core и затронутые UI-наборы, при сомнении полный check |
 | Только документы/приёмка | check:docs |
 | Диагностика/runner/валидатор | test:harness и полный check |
+| CI workflow/окружение | actionlint, чистые npm ci/check, GitHub success и контролируемый failure с JSON/PNG |
+
+## GitHub Actions
+
+[CI](../.github/workflows/ci.yml) содержит два независимых задания на `ubuntu-24.04`, Node берётся из `.nvmrc`. В каждом свой checkout и `npm ci`; npm cache хранит загрузки по lockfile. `Core, harness and build` исполняет check:docs → test:core → test:harness → build без установки Chrome и вызова doctor. `Browser UI (WebGL and Canvas)` устанавливает библиотеки Ubuntu и Chrome for Testing **157.0.8103.78** linux64, экспортирует `CHROME_BIN`, затем исполняет doctor → test:combat-ui → test:exploration → test:crafting. Это последовательные команды на одном runner; seed 123 остаётся только в core, отдельного test:visual/check в CI нет.
+
+Триггеры: pull_request, push в main, workflow_dispatch. Устаревшие запуски отменяются в пределах события и ветки/номера PR; разные PR не смешиваются. Права — только contents: read; checkout не сохраняет credentials. Actions закреплены SHA официальных релизов [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1), [setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0), [upload-artifact v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2). Реальные Node/npm/Chrome версии видны в логах. Код возврата каждой команды сохраняется; после ошибки последующие обычные шаги пропускаются. Пределы jobs: 15 минут для правил, 25 для браузера; установка и каждый browser-набор ограничены пятью минутами, upload — тремя. Внутренний предел browser runner — 240 секунд с ограниченной диагностикой/очисткой, что оставляет время до остановки шага.
+
+`Upload browser diagnostics` выполняется после успеха или ошибки, пока job не отменён. Он загружает `artifacts/` под уникальным именем `diagnostics-browser-<run_id>-<attempt>` на семь дней. При раннем сбое отсутствие файлов даёт warning и сохраняет первоначальный failure; установка/doctor диагностируются по логам шагов. После принудительной остановки всего job загрузка не гарантируется. Скриншот возможен, когда Chrome и страница доступны.
+
+Для обновления Chrome выбрать доступный Stable linux64 в [официальной таблице CfT](https://googlechromelabs.github.io/chrome-for-testing/) или её [JSON](https://googlechromelabs.github.io/chrome-for-testing/last-known-good-versions-with-downloads.json), заменить только `CHROME_VERSION` в workflow и актуализировать эту запись. URL содержит полную версию, не latest; установка проверяет вывод браузера. Проверить `deb.deps` из архива и имена библиотек целевой Ubuntu. При обновлении Actions сверить tag → полный commit SHA и входы action.yml с официальным репозиторием. До публикации выполнить `actionlint .github/workflows/ci.yml` (локально проверено 1.7.12), чистые npm ci/check, затем на GitHub подтвердить оба задания и диагностику контролируемой ошибки. Зависимости проекта ради валидатора не меняются.
+
+Контролируемый отказ: только во временной копии/проверочной ветке испортить ожидание существующего browser-check после загрузки страницы, запустить соответствующий набор и проверить exit 1, имя проверки, свежие `failure.json` и `failure.png`. Затем вернуть исходное ожидание и подтвердить исправление. Ошибка запуска Chrome проверяет раннюю диагностику, но не подтверждает screenshot. На GitHub повторить это отдельным PR/проверочной веткой, скачать артефакт и вернуть зелёный запуск; не добавлять постоянный режим намеренной ошибки. Локальные результаты и GitHub-hosted прогоны фиксируются отдельно [в активной задаче](tasks/active/2026-11-17-ci-checks.md).
 
 ## Что уже проверяется
 
