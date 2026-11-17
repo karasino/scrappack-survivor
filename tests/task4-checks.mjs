@@ -7,73 +7,13 @@ import { tmpdir } from 'node:os';
 export async function runTask4Checks({ evaluate, read, check, mouse, click, restart, send, renderer }) {
     const focusListeners = await read('s.game.events.listenerCount("focus")');
     await evaluate(`(async () => {
-        const { Inventory } = await import('/src/game/core/Inventory.ts');
-        const { Item } = await import('/src/game/core/Item.ts');
-        const { CombatEngine } = await import('/src/game/core/CombatEngine.ts');
         const { buildItemTooltipContent, formatTooltipNumber } = await import('/src/game/ui/ItemTooltipContent.ts');
-        const { LootTable } = await import('/src/game/core/LootTable.ts');
         const { previewPoweredEffect } = await import('/src/game/core/EnergyPlan.ts');
         globalThis.tooltipContent = item => buildItemTooltipContent(item, previewPoweredEffect(s.inventory,item));
         globalThis.formatNumber = formatTooltipNumber;
-        globalThis.energyCase = (options = {}) => {
-            const inventory = new Inventory();
-            const charges = options.charges ?? [5];
-            const batteries = charges.map((charge, i) => new Item({
-                id: 'bat' + i, name: 'Battery', type:'battery', width:1,height:1,color:0,
-                charge,maxCharge:5,voltageType:'low'
-            }));
-            batteries.forEach((item, i) => inventory.placeItem(item,0,i*2));
-            const weapon = new Item({ ...LootTable.find(i=>i.type==='weapon'),
-                id:'weapon',width:1,requiredVoltage:'low',energyCost:options.weaponCost ?? 2 });
-            const armor = new Item({ ...LootTable.find(i=>i.type==='armor'),
-                id:'armor',width:1,height:1,energyCost:options.armorCost ?? 1, poweredArmor: options.shield ?? 8 });
-            inventory.placeItem(weapon,2,0);
-            inventory.placeItem(armor,2,2);
-            weapon.isPowered = options.weaponPowered ?? true;
-            armor.isPowered = options.armorPowered ?? true;
-            const defaultLinks = [{batteryId:'bat0',costMultiplier:1}];
-            weapon.connectedBatteries = options.weaponLinks ?? defaultLinks.map(l=>({...l}));
-            armor.connectedBatteries = options.armorLinks ?? defaultLinks.map(l=>({...l}));
-            // A large item-global multiplier must never replace a path's multiplier.
-            weapon.energyCostMultiplier = armor.energyCostMultiplier = 99;
-            const engine = new CombatEngine(inventory,100,50,12,'Rad-Scorpion');
-            let bfs=0;
-            const update=inventory.updatePowerGrid.bind(inventory);
-            inventory.updatePowerGrid=()=>{bfs++;update()};
-            const linksBefore=JSON.stringify([weapon.connectedBatteries,armor.connectedBatteries]);
-            const log=engine.processTurn(weapon.id,options.useArmor===false ? null : armor.id);
-            return {charges:batteries.map(b=>b.charge),remaining:inventory.items.filter(i=>i.type==='battery').length,
-                damage:log.damageDealt,shield:log.shieldGenerated,hp:engine.playerHp,bfs,
-                linksUnchanged:linksBefore===JSON.stringify([weapon.connectedBatteries,armor.connectedBatteries])};
-        };
         globalThis.tooltipLabels = () => s.itemTooltip.labels.filter(t=>t.visible).map(t=>({text:t.text,color:t.style.color}));
         globalThis.tooltipTexts = () => tooltipLabels().map(t=>t.text);
     })()`);
-    const energy = async (options, expected, label) => {
-        const result = await evaluate(`energyCase(${JSON.stringify(options)})`);
-        for (const [key, value] of Object.entries(expected)) assert.deepEqual(result[key], value, `${renderer}: ${label}: ${key}`);
-    };
-    await energy({}, {charges:[2],damage:22,shield:8,hp:96,bfs:0,linksUnchanged:true}, 'shared source sums weapon and armor');
-    await energy({charges:[3]}, {charges:[0],remaining:0,damage:22,shield:8,hp:96,bfs:1}, 'shared source removed after full effects');
-    await energy({charges:[0.1]}, {charges:[0.1],remaining:1,damage:4,shield:2,bfs:0}, 'insufficient charge keeps source and uses base effects');
-    await energy({useArmor:false,weaponPowered:false}, {charges:[5],shield:0}, 'unselected powered armor is free');
-    await energy({armorPowered:false,weaponPowered:false}, {charges:[5],shield:2}, 'unpowered armor is free');
-    await energy({armorCost:0,weaponCost:0}, {charges:[5],shield:8,bfs:0}, 'zero-cost used items');
-    await energy({armorCost:-1,weaponCost:-2}, {charges:[5],shield:8}, 'negative costs clamp to zero');
-    await energy({weaponLinks:[],armorLinks:[]}, {charges:[5],shield:2,damage:4}, 'empty links cannot power effects');
-    await energy({weaponPowered:false,shield:20}, {charges:[4],shield:20,hp:100}, 'fully blocking armor still costs energy');
-    const both = [{batteryId:'bat0',costMultiplier:1},{batteryId:'bat1',costMultiplier:1}];
-    await energy({charges:[1,1],weaponPowered:false,armorLinks:both},
-        {charges:[0.5,0.5],remaining:2,bfs:0,linksUnchanged:true},'fractional armor distribution retained');
-    const unequal = [{batteryId:'bat0',costMultiplier:1},{batteryId:'bat1',costMultiplier:2}];
-    await energy({charges:[5,5],weaponPowered:false,armorLinks:unequal}, {charges:[4.5,4]}, 'per-path multipliers');
-    await energy({charges:[5,5],armorLinks:unequal}, {charges:[2.5,4]}, 'shared source plus separate armor sources');
-    await energy({charges:[1.5,1.5],weaponLinks:both,armorLinks:both}, {charges:[0,0],remaining:0,bfs:1},'multiple deletions recalculate once');
-    await energy({weaponLinks:[{batteryId:'bat0',costMultiplier:-2}],armorLinks:[{batteryId:'bat0',costMultiplier:0}]},
-        {charges:[5]}, 'negative path multiplier clamps to zero');
-    const tiny = await evaluate(`energyCase({charges:[0.505,0.505],weaponPowered:false,armorLinks:${JSON.stringify(both)}})`);
-    assert.equal(tiny.remaining,2);
-    assert.ok(tiny.charges.every(charge=>charge>0&&charge<0.01), `${renderer}: tiny charge retained`);
     await check('[formatNumber(1),formatNumber(1.239),formatNumber(0.005),formatNumber(0)]',['1','1.24','<0.01','0'],'number formatting');
 
     await restart();
@@ -268,5 +208,5 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     await check('document.documentElement.lang','en','HTML language');
     await check(`(() => {const all=s.children.getAll().filter(o=>o.type==='Text').map(o=>o.text);
         all.push(...Array.from(s.visualItemsMap.values(),v=>v.itemModel.name));return all.every(t=>!/[А-Яа-яЁё]/.test(t));})()`,true,'visible copy is English');
-    console.log(`PASS ${renderer}: shared energy, fractions, all tooltips, delay, live data, arrow pixels and lifecycle`);
+    console.log(`PASS ${renderer}: all tooltips, delay, live data, arrow pixels and lifecycle`);
 }

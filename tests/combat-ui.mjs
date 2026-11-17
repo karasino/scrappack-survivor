@@ -165,13 +165,13 @@ try {
         const restart = () => evaluate('reset()');
 
         if (process.argv.includes('--crafting-only')) {
-            await group('crafting core/UI and full run (seed 123)', () => runCraftingChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+            await group('crafting UI integration', () => runCraftingChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
             await cdp('Target.closeTarget',{targetId});
             continue;
         }
 
         if (process.argv.includes('--exploration-only')) {
-            await group('exploration core/UI and full run (seed 123)', () => runExplorationChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+            await group('exploration UI integration', () => runExplorationChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
             await cdp('Target.closeTarget',{targetId});
             continue;
         }

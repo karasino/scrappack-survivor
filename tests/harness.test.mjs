@@ -145,22 +145,25 @@ function fixtureProcess(t, source, cdp = false) {
     return state;
 }
 
-test('aggregate check stops on the first failing command and preserves its exit code', async t => {
+for (const failure of ['check:docs', 'test:core', null]) test(`aggregate check: ${failure ?? 'success'} preserves command order and exit code`, async t => {
     const root = await temporary(t);
     const log = join(root, 'steps.jsonl');
     const fakeNpm = join(root, 'npm-fixture.mjs');
     await writeFile(fakeNpm, `import {appendFileSync} from 'node:fs';
         const step=process.argv.at(-1);appendFileSync(${JSON.stringify(log)},JSON.stringify(step)+'\\n');
-        process.exit(step==='check:docs'?7:0);`);
+        process.exit(step===${JSON.stringify(failure)}?7:0);`);
     const state = spawnCaptured('Check fixture', process.execPath, [join(repositoryRoot, 'scripts/check.mjs')], {
         env: { ...process.env, npm_execpath: fakeNpm }
     });
     t.after(() => stopOwnedProcess(state, 100));
     const deadline = Date.now() + 5000;
     while (!state.exited && Date.now() < deadline) await delay(20);
-    assert.equal(state.code, 7);
-    assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line)), ['doctor', 'check:docs']);
-    assert.match(state.stderr, /Stopped at check:docs/);
+    const steps = ['doctor', 'check:docs', 'test:core', 'test:harness', 'build', 'test:combat-ui', 'test:exploration', 'test:crafting'];
+    assert.equal(state.code, failure ? 7 : 0);
+    assert.deepEqual((await readFile(log, 'utf8')).trim().split('\n').map(line => JSON.parse(line)),
+        failure ? steps.slice(0, steps.indexOf(failure) + 1) : steps);
+    if (failure) assert.ok(state.stderr.includes(`Stopped at ${failure}`));
+    else assert.match(state.stdout, /All checks passed/);
 });
 
 test('startup reports child exit code and stderr; silent startup is bounded', async t => {

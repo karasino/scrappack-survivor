@@ -9,36 +9,7 @@ export async function runPowerReasonChecks({ evaluate, read, check, mouse, click
     const weaponShortage = '! Insufficient charge for powered damage.';
     const armorShortage = '! Insufficient charge for powered shield.';
     const sharedShortage = '! Insufficient charge to power both selected items.';
-    await evaluate(`(async () => {
-        const { prepareEnergyPlan, previewPoweredEffect, canUsePoweredEffect } = await import('/src/game/core/EnergyPlan.ts');
-        globalThis.powerPreview=previewPoweredEffect;
-        globalThis.reasonCase = options => {
-            const f=energyFixture(options);
-            const before=f.state();
-            const armor=options.useArmor===false?null:f.armor;
-            const plan=prepareEnergyPlan(f.inventory,f.weapon,armor);
-            for(let i=0;i<20;i++) {
-                prepareEnergyPlan(f.inventory,f.weapon,armor);
-                const preview=previewPoweredEffect(f.inventory,f.weapon);
-                if(preview.available!==canUsePoweredEffect(f.inventory,f.weapon))throw Error('Boolean API mismatch');
-                previewPoweredEffect(f.inventory,f.armor);
-            }
-            return {weapon:plan.weaponReason,armor:plan.armorReason,pure:before===f.state()};
-        };
-        globalThis.reasonLines = () => s.itemTooltip.labels.filter(l=>l.visible&&l.text.startsWith('!')).map(l=>l.text);
-    })()`);
-    for(const [options,weapon,armor] of [
-        [{charges:{A:5}},null,null],
-        [{charges:{A:5},weaponSources:[],armorSources:[]},'no-source','no-source'],
-        [{charges:{A:0.5}},'insufficient-charge','insufficient-charge'],
-        [{charges:{A:2}},'shared-charge-conflict','shared-charge-conflict'],
-        [{charges:{A:1}},'insufficient-charge',null],
-        [{charges:{A:2},armorCost:3},null,'insufficient-charge'],
-        [{charges:{A:0.5,B:1.5},weaponSources:[['A',1],['B',1]],useArmor:false},null,null]
-    ]) {
-        assert.deepEqual(await evaluate(`reasonCase(${JSON.stringify(options)})`),{weapon,armor,pure:true},
-            `${renderer}: core reason and pure preview`);
-    }
+    await evaluate(`globalThis.reasonLines = () => s.itemTooltip.labels.filter(l=>l.visible&&l.text.startsWith('!')).map(l=>l.text)`);
     const waitFor = async (predicate,label) => {
         for(let i=0;i<100;i++) {if(await read(predicate))return;await delay(20);}
         throw Error(`${renderer}: timeout: ${label}`);
