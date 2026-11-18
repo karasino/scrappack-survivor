@@ -36,16 +36,18 @@ function covers(available: number, required: number): boolean {
 
 function snapshotUse(inventory: Inventory, item: Item | null, charges: ReadonlyMap<string, number>): EnergyUse {
     const sources = new Map<string, number>();
-    if (item && inventory.items.includes(item) && item.isPowered) {
+    if (item && inventory.items.includes(item) && item.isPowered && item.powerMode !== 'none') {
         for (const connection of item.connectedBatteries) {
             if (charges.has(connection.batteryId)) {
-                const multiplier = Math.max(0, connection.costMultiplier);
+                const source = inventory.items.find(candidate => candidate.id === connection.batteryId)!;
+                const tuning = item.type === 'weapon' ? source.traits.weaponCostMultiplier : source.traits.armorCostMultiplier;
+                const multiplier = Math.max(0, connection.costMultiplier * tuning);
                 sources.set(connection.batteryId, Math.min(sources.get(connection.batteryId) ?? Infinity, multiplier));
             }
         }
     }
     return {
-        cost: Math.max(0, item?.energyCost ?? 0),
+        cost: Math.max(0, (item?.energyCost ?? 0) + (item?.traits.energyCost ?? 0)),
         sources: Array.from(sources, ([id, multiplier]) => ({ id, multiplier }))
             .sort((a, b) => compareIds(a.id, b.id))
     };
@@ -139,7 +141,7 @@ export function prepareEnergyPlan(inventory: Inventory, weapon: Item | null, arm
         // are not rounded down, even when smaller than the comparison tolerance.
         .map(([id, cost]) => [id, Math.min(cost, charges.get(id)!)]));
     const reason = (item: Item | null, use: EnergyUse, available: boolean): EnergyUnavailableReason | null =>
-        item === null || available ? null : use.sources.length === 0 ? 'no-source' : 'insufficient-charge';
+        item === null || item.powerMode === 'none' || available ? null : use.sources.length === 0 ? 'no-source' : 'insufficient-charge';
     return {
         weaponPowered, armorPowered, batteryCosts,
         weaponReason: reason(weapon, weaponUse, weaponPowered),
@@ -149,7 +151,7 @@ export function prepareEnergyPlan(inventory: Inventory, weapon: Item | null, arm
 
 /** Preview this item together with the selected item of the other consumer type. */
 export function previewPoweredEffect(inventory: Inventory, item: Item): PoweredEffectPreview {
-    if (item.type !== 'weapon' && item.type !== 'armor') {
+    if (item.powerMode === 'none' || (item.type !== 'weapon' && item.type !== 'armor')) {
         return { available: false, reason: null };
     }
     if (!inventory.items.includes(item)) {

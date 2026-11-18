@@ -1,6 +1,11 @@
 import type { ItemConfig } from './Item';
 
 export const LootTable: Omit<ItemConfig, 'id'>[] = [
+    { definitionId: 'dagger', name: 'Dagger', type: 'weapon', width: 1, height: 1, color: 0xc9c3ad, baseDamage: 6, powerMode: 'none' },
+    { definitionId: 'battle_axe', name: 'Battle Axe', type: 'weapon', width: 2, height: 3, color: 0x998c7a, baseDamage: 14, powerMode: 'none' },
+    { definitionId: 'combat_bra', name: 'Combat Bra', type: 'armor', width: 2, height: 1, color: 0x91816b, baseArmor: 3, powerMode: 'none' },
+    { definitionId: 'steel_armor', name: 'Steel Armor', type: 'armor', width: 2, height: 3, color: 0x8e9d9e, baseArmor: 6, powerMode: 'none' },
+    { definitionId: 'arc_baton', name: 'Arc Baton', type: 'weapon', width: 1, height: 2, color: 0x72b7cb, baseDamage: 3, poweredDamage: 12, requiredVoltage: 'low', energyCost: 1 },
     {
         definitionId: 'weak_battery', name: 'Weak Battery', type: 'battery', width: 1, height: 1,
         color: 0xffd700, capacity: 5, maxCapacity: 5, charge: 5, maxCharge: 5, voltageType: 'low'

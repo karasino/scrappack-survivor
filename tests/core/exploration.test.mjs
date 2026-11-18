@@ -1,10 +1,11 @@
+import { electricLoadout } from './fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RunState } from '../../src/game/core/RunState.ts';
 import { ExplorationEngine } from '../../src/game/core/ExplorationEngine.ts';
 
 const fixture=(seed=123)=>{
-    const run=new RunState(seed);
+    const run=electricLoadout(new RunState(seed));
     const templates=Object.fromEntries(run.enemies.map(e=>[e.kind,{...e}]));
     run.map={rows:Array(8).fill('........'),width:8,height:8,exit:{x:7,y:0}};
     run.hero={x:0,y:7};run.enemies=[];run.lootPoints=[];

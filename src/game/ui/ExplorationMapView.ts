@@ -149,13 +149,13 @@ export class ExplorationMapView {
         this.waitButton.enabled = enabled && run.mode === 'exploration';
         this.actionButton.enabled = enabled && (final || (action !== null && run.mode === 'exploration'));
         this.actionButton.label.setText(final ? 'NEW RUN' : action === 'search' ? 'SEARCH'
-            : action === 'exit' ? 'LEAVE SECTOR' : action === 'heal-station' ? 'USE STATION'
+            : action === 'blueprint-cache' ? 'BLUEPRINT CACHE' : action === 'exit' ? 'LEAVE SECTOR' : action === 'heal-station' ? 'USE STATION'
             : onExit && exitLocked ? 'BOSS ALIVE'
             : station && !station.used && run.playerHp >= run.playerMaxHp ? 'HP FULL' : 'NO ACTION');
         this.styleButton(this.waitButton);
         this.styleButton(this.actionButton);
         const signature = JSON.stringify([run.sectorIndex, run.map.rows, run.hero, run.enemies, run.lootPoints,
-            run.aidStations, run.requiredBossId,
+            run.aidStations, run.blueprintCaches, run.requiredBossId,
             Array.from(run.groundItems, ([key, items]) => [key, items.length]),
             Array.from(run.groundMaterials, ([key, items]) => [key, items.length]), hoveredEnemyId]);
         if (signature === this.signature) return;
@@ -189,6 +189,7 @@ export class ExplorationMapView {
                 if (detection.has(`${x},${y}`)) g.fillStyle(UITheme.colors.warning, 0.12).fillRect(left + 1, top + 1, 48, 48);
                 g.lineStyle(1, UITheme.colors.border).strokeRect(left, top, 50, 50);
                 const label = this.labels[y * 8 + x].setText('').setColor(cssColor(UITheme.colors.text));
+                const cache = run.blueprintCaches.find(candidate => candidate.x === x && candidate.y === y);
                 const point = run.lootPoints.find(candidate => candidate.x === x && candidate.y === y);
                 const ground = (run.groundItems.get(`${x},${y}`)?.length ?? 0) > 0
                     || (run.groundMaterials.get(`${x},${y}`)?.length ?? 0) > 0;
@@ -212,6 +213,10 @@ export class ExplorationMapView {
                     label.setText(point.searched ? (ground ? '+' : '·') : point.id.endsWith('1') ? '1' : '2')
                         .setColor(cssColor(point.searched ? UITheme.colors.secondaryText : UITheme.colors.selected));
                 } else if (ground && !station) label.setText('+').setColor(cssColor(UITheme.colors.selected));
+                if (cache) {
+                    g.lineStyle(2, UITheme.colors.powered).strokeRect(left + 9, top + 9, 32, 32);
+                    label.setText(cache.selectedRecipeId ? '·' : 'BP').setColor(cssColor(UITheme.colors.powered));
+                }
                 const enemy = run.enemies.find(candidate => candidate.x === x && candidate.y === y);
                 if (enemy) {
                     g.fillStyle(UITheme.colors.itemBackground).lineStyle(2, UITheme.colors.warning);

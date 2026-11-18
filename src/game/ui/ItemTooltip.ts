@@ -21,17 +21,8 @@ export class ItemTooltip {
         this.scene = scene;
         this.background = scene.add.graphics();
         this.chargeGraphics = scene.add.graphics();
-        // Eight labels cover title, type, five consumer stats and an optional warning.
-        // Battery content (including percentage) also fits this reusable pool.
-        this.labels = Array.from({ length: 8 }, (_, index) => {
-            const size = index === 0 ? UITheme.fonts.tooltipTitle : UITheme.fonts.tooltipBody;
-            return scene.add.text(PADDING, PADDING, '', {
-                fontFamily: UITheme.fonts.family, fontSize: `${size}px`, color: cssColor(UITheme.colors.text),
-                wordWrap: { width: WIDTH - PADDING * 2, useAdvancedWrap: true },
-                metrics: { ascent: size - 3, descent: 3, fontSize: size },
-                lineSpacing: LINE_STEP - size
-            }).setOrigin(0);
-        });
+        // Reuse the common labels, growing the pool when variants need more rows.
+        this.labels = Array.from({ length: 8 }, (_, index) => this.createLabel(index));
         this.container = scene.add.container(0, 0, [this.background, this.chargeGraphics, ...this.labels])
             .setDepth(UITheme.layers.tooltip).setVisible(false);
     }
@@ -40,12 +31,22 @@ export class ItemTooltip {
         return this.container.visible;
     }
 
+    private createLabel(index: number): Phaser.GameObjects.Text {
+        const size = index === 0 ? UITheme.fonts.tooltipTitle : UITheme.fonts.tooltipBody;
+        return this.scene.add.text(PADDING, PADDING, '', {
+            fontFamily: UITheme.fonts.family, fontSize: `${size}px`, color: cssColor(UITheme.colors.text),
+            wordWrap: { width: WIDTH - PADDING * 2, useAdvancedWrap: true },
+            metrics: { ascent: size - 3, descent: 3, fontSize: size },
+            lineSpacing: LINE_STEP - size
+        }).setOrigin(0);
+    }
+
     show(content: ItemTooltipContent, pointerX: number, pointerY: number): void {
         const wasVisible = this.visible;
         const key = JSON.stringify(content);
         if (key !== this.contentKey) {
-            this.contentKey = key;
             this.layout(content);
+            this.contentKey = key;
         }
         const { cursorOffset, viewportMargin } = UITheme.tooltip;
         let x = pointerX + cursorOffset;
@@ -76,7 +77,13 @@ export class ItemTooltip {
         let y = PADDING;
         let index = 0;
         const addText = (text: string, color = cssColor(UITheme.colors.text)): void => {
-            const label = this.labels[index++];
+            let label = this.labels[index];
+            if (!label) {
+                label = this.createLabel(index);
+                this.labels.push(label);
+                this.container.add(label);
+            }
+            index++;
             label.setPosition(PADDING, y).setText(text).setColor(color).setVisible(true);
             y += label.getWrappedText().length * LINE_STEP;
         };

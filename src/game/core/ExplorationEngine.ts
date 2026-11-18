@@ -6,11 +6,12 @@ import type { WorldPosition } from './SectorDefinitions';
 export type ExplorationAction =
     { type: 'move'; dx: number; dy: number } |
     { type: 'wait' } | { type: 'search' } | { type: 'exit' } |
+    { type: 'blueprint-cache' } |
     { type: 'heal'; itemId: string } | { type: 'heal-station' };
 
 export interface ExplorationEvent {
     type: 'hero-moved' | 'enemy-moved' | 'waited' | 'loot-opened' |
-        'combat-started' | 'sector-entered' | 'run-completed' | 'workshop-entered' | 'healed' | 'station-used';
+        'combat-started' | 'sector-entered' | 'run-completed' | 'workshop-entered' | 'healed' | 'station-used' | 'blueprint-opened';
     message?: string;
     enemyId?: string;
     pointId?: string;
@@ -34,9 +35,10 @@ export class ExplorationEngine {
         this.state = state;
     }
 
-    public contextualAction(): 'search' | 'exit' | 'heal-station' | null {
+    public contextualAction(): 'search' | 'exit' | 'heal-station' | 'blueprint-cache' | null {
         const state = this.state;
-        if (state.mode !== 'exploration' || state.draggedItem) return null;
+        if (state.mode !== 'exploration' || state.draggedItem || state.activeBlueprintChoice) return null;
+        if (state.blueprintCaches.some(cache => !cache.selectedRecipeId && this.sameCell(cache, state.hero))) return 'blueprint-cache';
         if (this.sameCell(state.hero, state.map.exit)) return state.exitLocked ? null : 'exit';
         if (state.playerHp < state.playerMaxHp && state.aidStations.some(station => !station.used &&
             this.sameCell(station, state.hero))) return 'heal-station';
@@ -48,7 +50,8 @@ export class ExplorationEngine {
         const state = this.state;
         const events: ExplorationEvent[] = [];
         const rejected = { accepted: false, events };
-        if (state.mode !== 'exploration' || state.draggedItem) return rejected;
+        if (state.mode !== 'exploration' || state.draggedItem || state.activeBlueprintChoice) return rejected;
+        let openedCacheId: string | null = null;
 
         if (action.type === 'exit') {
             if (this.contextualAction() !== 'exit') return rejected;
@@ -72,12 +75,24 @@ export class ExplorationEngine {
             const from = { ...state.hero };
             state.hero = target;
             events.push({ type: 'hero-moved', from, to: { ...target } });
+        } else if (action.type === 'blueprint-cache') {
+            const cache = state.blueprintCaches.find(candidate => !candidate.selectedRecipeId && this.sameCell(candidate, state.hero));
+            if (!cache) return rejected;
+            if (cache.opened) {
+                state.pendingBlueprintCacheId = cache.id;
+                return { accepted: true, events: [{ type: 'blueprint-opened', pointId: cache.id }] };
+            }
+            cache.opened = true;
+            openedCacheId = cache.id;
+            state.worldTurn++;
+            events.push({ type: 'blueprint-opened', pointId: cache.id, message: 'Found three blueprints. Learn one recipe.' });
         } else if (action.type === 'search') {
             const point = state.lootPoints.find(candidate =>
                 !candidate.searched && this.sameCell(candidate, state.hero));
             if (!point) return rejected;
             const itemIds = state.addLoot(point.loot);
             point.searched = true;
+            state.learnUtilityRecipe(point.name === 'Scrap Heap' ? 'copper_wire' : 'step_up_transformer');
             state.worldTurn++;
             events.push({
                 type: 'loot-opened', pointId: point.id, itemIds,
@@ -106,6 +121,7 @@ export class ExplorationEngine {
 
         this.moveEnemies(events);
         this.refreshChasing();
+        if (openedCacheId && state.playerHp > 0) state.pendingBlueprintCacheId = openedCacheId;
         return { accepted: true, events };
     }
 

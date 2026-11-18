@@ -8,7 +8,7 @@ export function runFullCraftingRun() {
     const engine = new ExplorationEngine(run);
     const directions = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
     const key = position => position.x + ',' + position.y;
-    const startingItems = run.inventory.items.slice();
+
     let fights = 0;
     let steps = 0;
     let healingActions = 0;
@@ -63,10 +63,10 @@ export function runFullCraftingRun() {
         fights++;
         for (let turn = 0; run.mode === 'combat' && turn < 100; turn++) {
             const enemy = run.getEnemy(run.activeEnemyId);
-            const weapon = run.inventory.items.find(item => item.type === 'weapon');
+            const weapon = run.inventory.items.find(item => item.type === 'weapon' && item.isSelectedForTurn);
             const armor = run.inventory.items.find(item => item.type === 'armor');
             const medkit = run.inventory.items.find(item => item.definitionId === 'medkit');
-            if (enemy.isBoss && run.playerHp < run.playerMaxHp && run.combatEngine.enemyHp <= 22 && medkit) {
+            if (enemy.isBoss && run.playerHp <= 35 && medkit) {
                 const log = run.processCombatAction({ type: 'heal', consumableId: medkit.id, armorId: armor?.id ?? null });
                 assert.ok(log.healingRestored > 0 && log.damageDealt === 0, 'real battle medkit replaces attack');
                 healingActions++;
@@ -114,27 +114,50 @@ export function runFullCraftingRun() {
         }
         assert.ok(run.enemies.length === 0, 'all actual sector enemies defeated');
     };
+    // Visit both authored caches through cardinal movement and learn actual variants.
+    let arcRecipe;
+    for (const cache of run.blueprintCaches) {
+        travel(cache);
+        assert.ok(engine.applyAction({type:'blueprint-cache'}).accepted, 'open actual blueprint cache');
+        resolveBattle();
+        assert.ok(run.activeBlueprintChoice, 'choice available after any encounter');
+        const recipe = cache.offers[cache === run.blueprintCaches[0] ? 0 : 1];
+        assert.ok(run.chooseBlueprint(cache.id, recipe.id), 'learn one offered variant');
+        if (cache === run.blueprintCaches[0]) arcRecipe = recipe;
+    }
     clearSector();
     sectorOneBudget = { ...run.materials };
     assert.deepEqual(sectorOneBudget, { metal: 8, electronics: 7, fabric: 4 }, 'complete sector one material budget');
-    assert.deepEqual(run.inventory.items.filter(item => item.type === 'component').map(item => item.definitionId).sort(),
-        ['power_core', 'precision_mechanism'], 'complete sector one component budget');
-    assert.deepEqual(run.inventory.items.find(item => item.definitionId === 'heavy_battery').charge, 4,
-        'first sector consumes four powered shots');
     travel(run.map.exit);
     assert.ok(engine.applyAction({ type: 'exit' }).accepted && run.mode === 'workshop', 'first exit enters real workshop');
     const workshopRng = run.rngState;
-    const craftAndPickup = recipeId => {
+    const craft = recipeId => {
         assert.ok(run.previewRecipe(recipeId).canCraft, 'earned resources afford ' + recipeId);
         const item = run.craftRecipe(recipeId);
-        assert.ok(item && pickup(item), 'crafted item moved from real bench ' + recipeId);
+        assert.ok(item && run.workshopItems.includes(item), 'craft onto real bench');
         return item;
     };
-    craftAndPickup('heavy_battery');
-    craftAndPickup('weak_battery');
-    craftAndPickup('medkit');
-    assert.deepEqual(run.rngState, workshopRng, 'real preparation does not advance world randomness');
-    assert.ok(run.inventory.items.some(item => item === startingItems[0] && item.charge === 4), 'original partial battery kept');
+    assert.ok(run.useMedkit() > 0, 'use starting medkit in workshop'); healingActions++;
+    const arc = craft(arcRecipe.id);
+    assert.equal(arc.definitionId, 'arc_baton');
+    const batteries = [run.inventory.items.find(i=>i.type==='battery'), craft('weak_battery'), craft('weak_battery')];
+    const armor = run.inventory.items.find(i=>i.type==='armor');
+    const dagger = run.inventory.items.find(i=>i.definitionId==='dagger');
+    const components = run.inventory.items.filter(i=>i.type==='component');
+    const medicines = [craft('medkit'),craft('medkit')];
+    // Ordinary inventory ownership transfer, rearrangement and selection; no new resources.
+    for (const item of [...run.inventory.items]) run.putOnGround(item);
+    const arrange = (item,x,y) => {
+        assert.equal(run.removeFromGround(item.id),item);
+        assert.ok(run.inventory.placeItem(item,x,y), 'planned 4x4 build fits');
+    };
+    arrange(arc,1,1); arrange(armor,2,0); arrange(dagger,0,0);
+    [[0,1],[0,2],[2,1]].forEach(([x,y],i)=>arrange(batteries[i],x,y));
+    components.forEach((item,i)=>arrange(item,3,2+i));
+    medicines.forEach((item,i)=>arrange(item,i,3));
+    arc.isSelectedForTurn=true; armor.isSelectedForTurn=true;
+    run.inventory.updatePowerGrid();
+    assert.deepEqual(run.rngState, workshopRng, 'craft and rearrangement preserve world randomness');
     assert.ok(run.continueFromWorkshop() && run.sectorIndex === 1, 'continue loads second actual sector');
     clearSector();
     assert.ok(healingActions > 0, 'route uses actual limited healing');
@@ -142,7 +165,10 @@ export function runFullCraftingRun() {
     travel(run.map.exit);
     assert.ok(engine.applyAction({ type: 'exit' }).accepted && run.mode === 'workshop' && run.workshopFinal,
         'second exit enters final real workshop');
-    const finalItem = craftAndPickup('heavy_battery');
+    const finalItem = craft(arcRecipe.id);
+    assert.ok(pickup(finalItem), 'final crafted variant fits expanded backpack');
+    assert.deepEqual(finalItem.variant, arc.variant, 'repeated craft preserves learned properties');
+    assert.notEqual(finalItem.id, arc.id);
     assert.ok(run.inventory.items.includes(finalItem), 'boss components produce a usable final item');
     assert.ok(run.continueFromWorkshop() && run.mode === 'complete', 'finish demo after final crafting');
     return { seed: run.seed, hp: run.playerHp, fights, steps, healingActions, sectorOneBudget,

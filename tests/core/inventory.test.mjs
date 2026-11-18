@@ -8,9 +8,9 @@ test('starting loadout preserves positions, selection, physical power and charge
     const initial=new RunState(42);
 
     assert.deepEqual(initial.inventory.items.map(i=>[i.definitionId,i.gridX,i.gridY]),[
-        ['heavy_battery',0,0],['laser_pistol',2,0],['weak_battery',0,2],['makeshift_vest',1,2],['medkit',0,1]],'guaranteed starting loadout');
-    assert.ok(initial.inventory.items.filter(i=>i.type==='weapon'||i.type==='armor').every(i=>i.isSelectedForTurn&&i.isPowered),'starting weapon and armor selected and powered');
-    assert.deepEqual(initial.inventory.items.filter(i=>i.type==='battery').map(i=>i.charge),[12,5],'starting charges');
+        ['dagger',0,0],['combat_bra',1,0],['weak_battery',0,1],['medkit',1,1]],'guaranteed starting loadout');
+    assert.ok(initial.inventory.items.filter(i=>i.type==='weapon'||i.type==='armor').every(i=>i.isSelectedForTurn&&!i.isPowered&&i.powerMode==='none'),'starting weapon and armor selected and physical');
+    assert.deepEqual(initial.inventory.items.filter(i=>i.type==='battery').map(i=>i.charge),[5],'starting charges');
 });
 
 test('closed starting cells and four rotations of components and medkit', () => {

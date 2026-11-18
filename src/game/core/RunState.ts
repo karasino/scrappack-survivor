@@ -1,3 +1,7 @@
+import { generateBlueprintCaches } from './BlueprintGenerator';
+import type { BlueprintCache } from './BlueprintGenerator';
+import type { ItemVariant } from './ItemVariants';
+import { describeRecipe } from './ItemVariants';
 import { CombatEngine } from './CombatEngine';
 import type { CombatAction, CombatTurnLog } from './CombatEngine';
 import { Inventory } from './Inventory';
@@ -7,8 +11,8 @@ import { reachableDistances } from './GridTraversal';
 import { ExplorationEngine } from './ExplorationEngine';
 import { ENEMY_DEFINITIONS, SECTOR_DEFINITIONS, worldKey } from './SectorDefinitions';
 import type { EnemyKind, WorldPosition } from './SectorDefinitions';
-import { emptyMaterials, MATERIAL_CAPACITY, MATERIAL_NAMES, MATERIAL_TYPES, RECIPES } from './Crafting';
-import type { GroundLoot, GroundMaterialLoot, LootSpec, MaterialAmounts, MaterialType, RecipePreview } from './Crafting';
+import { emptyMaterials, MATERIAL_CAPACITY, MATERIAL_NAMES, MATERIAL_TYPES, RECIPES, BASE_RECIPE_IDS } from './Crafting';
+import type { GroundLoot, GroundMaterialLoot, LootSpec, MaterialAmounts, MaterialType, RecipePreview, Recipe } from './Crafting';
 
 export type RunMode = 'exploration' | 'combat' | 'workshop' | 'boss-reward' | 'defeat' | 'complete';
 export type EncounterInitiator = 'player' | 'enemy';
@@ -76,6 +80,39 @@ export class RunState {
     public enemies: WorldEnemy[] = [];
     public lootPoints: WorldLootPoint[] = [];
     public aidStations: AidStation[] = [];
+    public blueprintCaches: BlueprintCache[] = [];
+    public pendingBlueprintCacheId: string | null = null;
+    private readonly learnedRecipes = new Map<string, Recipe>(RECIPES.filter(recipe =>
+        (BASE_RECIPE_IDS as readonly string[]).includes(recipe.id)).map(recipe => [recipe.id, recipe]));
+
+    public get knownRecipes(): readonly Recipe[] { return [...this.learnedRecipes.values()]; }
+    public get activeBlueprintChoice(): BlueprintCache | null {
+        return this.mode === 'exploration' && this.playerHp > 0 ? this.blueprintCaches.find(cache =>
+            cache.id === this.pendingBlueprintCacheId && !cache.selectedRecipeId) ?? null : null;
+    }
+    public chooseBlueprint(cacheId: string, recipeId: string): boolean {
+        const cache = this.activeBlueprintChoice;
+        const recipe = cache?.offers.find(offer => offer.id === recipeId);
+        if (!cache || cache.id !== cacheId || !recipe) return false;
+        this.learnedRecipes.set(recipe.id, recipe);
+        cache.selectedRecipeId = recipe.id;
+        this.pendingBlueprintCacheId = null;
+        return true;
+    }
+    public closeBlueprintChoice(): boolean {
+        if (!this.activeBlueprintChoice) return false;
+        this.pendingBlueprintCacheId = null;
+        return true;
+    }
+    public learnUtilityRecipe(id: string): void {
+        if (id !== 'copper_wire' && id !== 'step_up_transformer') return;
+        const recipe = RECIPES.find(candidate => candidate.id === id)!;
+        this.learnedRecipes.set(id, recipe);
+    }
+    public describeRecipe(id: string): string[] {
+        const recipe = this.learnedRecipes.get(id);
+        return recipe ? describeRecipe(recipe) : [];
+    }
     public readonly groundItems = new Map<string, Item[]>();
     public readonly groundMaterials = new Map<string, GroundMaterialLoot[]>();
     public readonly materials: MaterialAmounts = emptyMaterials();
@@ -98,8 +135,7 @@ export class RunState {
         this.seed = seed >>> 0;
         this.rngState = this.seed;
         const startingItems: Array<[string, number, number]> = [
-            ['heavy_battery', 0, 0], ['laser_pistol', 2, 0],
-            ['weak_battery', 0, 2], ['makeshift_vest', 1, 2], ['medkit', 0, 1]
+            ['dagger', 0, 0], ['combat_bra', 1, 0], ['weak_battery', 0, 1], ['medkit', 1, 1]
         ];
         for (const [definitionId, x, y] of startingItems) {
             const item = this.createItem(definitionId);
@@ -126,13 +162,14 @@ export class RunState {
         return this.rngState / 0x100000000;
     }
 
-    public createItem(definitionId: string, charge?: number): Item {
+    public createItem(definitionId: string, charge?: number, variant?: ItemVariant): Item {
         const definition = LootTable.find(candidate => candidate.definitionId === definitionId);
         if (!definition) throw new Error(`Unknown item definition '${definitionId}'.`);
-        return new Item({
-            ...definition, id: `run-${this.seed}-item-${++this.itemCounter}`,
-            ...(charge === undefined ? {} : { charge, capacity: charge })
+        const item = new Item({
+            ...definition, variant, id: `run-${this.seed}-item-${++this.itemCounter}`,
         });
+        if (charge !== undefined) item.charge = item.capacity = Math.max(0, Math.min(item.maxCharge, charge));
+        return item;
     }
 
     /** Physical loot currently accessible to the hero; the bench is a separate owner. */
@@ -245,11 +282,11 @@ export class RunState {
     }
 
     private canTransferLooseLoot(): boolean {
-        return (this.mode === 'exploration' || this.mode === 'workshop') && !this.draggedItem;
+        return (this.mode === 'exploration' || this.mode === 'workshop') && !this.draggedItem && !this.activeBlueprintChoice;
     }
 
     public previewRecipe(recipeId: string): RecipePreview {
-        const recipe = RECIPES.find(candidate => candidate.id === recipeId) ?? null;
+        const recipe = this.learnedRecipes.get(recipeId) ?? null;
         const missingMaterials = emptyMaterials();
         const missingComponents: Record<string, number> = {};
         if (recipe) {
@@ -264,6 +301,7 @@ export class RunState {
         let reason: string | null = null;
         if (!recipe) reason = 'Unknown recipe.';
         else if (this.mode !== 'workshop') reason = 'Crafting is available only in a workshop.';
+        else if (this.activeBlueprintChoice) reason = 'Choose or close the blueprint first.';
         else if (this.draggedItem) reason = 'Finish moving the item first.';
         else {
             const missing = MATERIAL_TYPES.filter(material => missingMaterials[material] > 0)
@@ -289,7 +327,7 @@ export class RunState {
             ingredients.push(...owned);
         }
         // Prepare the result before committing any resource/owner change.
-        const output = this.createItem(recipe.outputDefinitionId);
+        const output = this.createItem(recipe.outputDefinitionId, undefined, recipe.outputVariant);
         for (const material of MATERIAL_TYPES) this.materials[material] -= recipe.materials[material];
         for (const ingredient of ingredients) this.inventory.removeItem(ingredient.id);
         if (ingredients.length) this.inventory.updatePowerGrid();
@@ -298,7 +336,7 @@ export class RunState {
     }
 
     public enterWorkshop(): boolean {
-        if (this.mode !== 'exploration' || this.draggedItem || this.exitLocked ||
+        if (this.mode !== 'exploration' || this.activeBlueprintChoice || this.draggedItem || this.exitLocked ||
             this.hero.x !== this.map.exit.x || this.hero.y !== this.map.exit.y) return false;
         this.nextSectorIndex = this.sectorIndex + 1 < SECTOR_DEFINITIONS.length ? this.sectorIndex + 1 : null;
         this.workshopFinal = this.nextSectorIndex === null;
@@ -327,7 +365,7 @@ export class RunState {
     /** Internal resolution step: ExplorationEngine supplies the world turn/AI phase. */
     public consumeMedkit(itemId: string): number {
         if ((this.mode !== 'exploration' && this.mode !== 'workshop') || this.draggedItem ||
-            this.playerHp <= 0 || this.playerHp >= this.playerMaxHp) return 0;
+            this.playerHp <= 0 || this.playerHp >= this.playerMaxHp || this.activeBlueprintChoice) return 0;
         const item = this.findMedkit(itemId);
         if (!item) return 0;
         const restored = Math.min(item.healingAmount, this.playerMaxHp - this.playerHp);
@@ -366,6 +404,8 @@ export class RunState {
     public loadSector(index: number): void {
         const definition = SECTOR_DEFINITIONS[index];
         if (!definition) throw new RangeError(`Unknown sector index '${index}'.`);
+        this.blueprintCaches = generateBlueprintCaches(this.seed, index);
+        this.pendingBlueprintCacheId = null;
         this.sectorIndex = index;
         this.worldTurn = 0;
         this.mode = 'exploration';
@@ -423,7 +463,7 @@ export class RunState {
     }
 
     public beginEncounter(enemyId: string, initiator: EncounterInitiator = 'enemy'): void {
-        if (this.mode !== 'exploration' || this.draggedItem !== null) {
+        if (this.mode !== 'exploration' || this.draggedItem !== null || this.activeBlueprintChoice) {
             throw new Error('An encounter can only begin during exploration without a dragged item.');
         }
         const enemy = this.getEnemy(enemyId);
@@ -454,6 +494,7 @@ export class RunState {
             this.playerHp = this.combatEngine.playerHp;
         }
         if (log.isPlayerDead) {
+            this.pendingBlueprintCacheId = null;
             this.mode = 'defeat';
             this.activeEnemyId = null;
             this.victoryPosition = null;

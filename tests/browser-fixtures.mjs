@@ -17,7 +17,7 @@ async function installBrowserFixtures(fixedSeed) {
     if (!s?.endTurnButton?.input) throw Error('GameScene did not become ready');
     globalThis.seed = (items) => {
         for (const config of items) {
-            const base = LootTable.find(item => item.type === config.type);
+            const base = LootTable.find(item => item.definitionId === config.definitionId) ?? LootTable.find(item => item.definitionId === ({weapon:'laser_pistol',armor:'makeshift_vest',battery:'weak_battery',wire:'copper_wire',transformer:'step_up_transformer',consumable:'medkit'}[config.type]));
             const item = new Item({ ...base, ...config });
             if (config.x !== undefined) {
                 if (!s.inventory.placeItem(item, config.x, config.y)) throw Error('Invalid fixture placement');
@@ -62,12 +62,35 @@ async function installBrowserFixtures(fixedSeed) {
         {type:'transformer',id:'transformer',x:1,y:0},
         {type:'weapon',id:'gun',x:2,y:0}
     ]);
-    globalThis.prepareCombatHeal = async () => {
+    globalThis.freshElectricRun = async () => {
         await freshRun(fixedSeed);
+        for (const visual of [...s.visualItemsMap.values()]) visual.destroy();
+        for (const item of [...s.inventory.items]) s.inventory.removeItem(item.id);
+        for (const [definitionId,x,y] of [['heavy_battery',0,0],['laser_pistol',2,0],['weak_battery',0,2],['makeshift_vest',1,2],['medkit',0,1]]) {
+            const item=s.run.createItem(definitionId); item.isSelectedForTurn=item.type==='weapon'||item.type==='armor';
+            if(!s.inventory.placeItem(item,x,y))throw Error('Invalid combat-heal fixture');
+        }
+        s.inventory.updatePowerGrid();
+        s.updateCombatUI();
+    };
+    globalThis.prepareCombatHeal = async () => {
+        await freshElectricRun();
         s.run.playerHp=60;
         s.run.beginEncounter(s.run.enemies.find(enemy => enemy.kind==='scorpion').id);
         s.backpackView=true;
         s.updateCombatUI();
+    };
+    globalThis.learnFixtureBlueprint = async base => {
+        const {generateBlueprintCaches}=await import('/src/game/core/BlueprintGenerator.ts');
+        const {ExplorationEngine}=await import('/src/game/core/ExplorationEngine.ts');
+        const old={hero:s.run.hero,enemies:s.run.enemies,caches:s.run.blueprintCaches};
+        let caches;
+        for(let seed=0;seed<1000;seed++) {const c=generateBlueprintCaches(seed,0);if(c.some(p=>p.offers.some(r=>r.outputDefinitionId===base))){caches=c;break}}
+        const cache=caches.find(p=>p.offers.some(r=>r.outputDefinitionId===base));
+        const recipe=cache.offers.find(r=>r.outputDefinitionId===base);
+        s.run.blueprintCaches=caches;s.run.enemies=[];s.run.hero={x:cache.x,y:cache.y};
+        if(!new ExplorationEngine(s.run).applyAction({type:'blueprint-cache'}).accepted||!s.run.chooseBlueprint(cache.id,recipe.id))throw Error('Knowledge fixture failed');
+        Object.assign(s.run,{hero:old.hero,enemies:old.enemies,blueprintCaches:old.caches});return recipe.id;
     };
     globalThis.prepareScenario = async id => {
         if (id === 'transformer-chain') {

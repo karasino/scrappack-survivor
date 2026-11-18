@@ -30,7 +30,7 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     assert.equal(contents[2].lines[0].text,'Charge: <0.01 / 5');
     assert.equal(contents[2].charge.percent,'<1%');
     assert.equal(contents[2].charge.ratio,0.001);
-    assert.deepEqual(contents[3].lines,[]);
+    assert.deepEqual(contents[3].lines,[{text:'Energy cost -20% once per path.'}]);
     assert.deepEqual(contents[4].lines.map(l=>l.text),['Conversion: Low → High','When converting: +1 to energy cost multiplier']);
     await evaluate(`s.visualItemsMap.get('transformer').itemModel.transformDirection='high-to-low'`);
     await check("tooltipContent(s.visualItemsMap.get('transformer').itemModel).lines[0].text",'Conversion: High → Low','reverse conversion');
@@ -70,7 +70,7 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     await hover(375,175);
     await check('tooltipTexts().includes("Base energy cost: 1 / turn used")',true,'armor panel uses paid cost');
     await hover(225,325);
-    await check('tooltipTexts()',['Copper Wire','Wire'],'wire has only heading');
+    await check('tooltipTexts()',['Copper Wire','Wire','Energy cost -20% once per path.'],'wire describes saving');
     await hover(375,325);
     await check('tooltipTexts()',['Step-up Transformer','Transformer','Conversion: No conversion'],'transformer panel');
     await evaluate("s.run.mode='exploration';s.groundPage=s.run.itemsAtHero().findIndex(i=>i.id==='bat');s.updateCombatUI();s.visualItemsMap.get('bat').setPosition(680,350)");

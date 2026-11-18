@@ -1,3 +1,4 @@
+import { electricLoadout, learnBase } from './fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { RunState } from '../../src/game/core/RunState.ts';
@@ -31,11 +32,11 @@ const workshop=(run)=>{run.hero={...run.map.exit};const engine=new ExplorationEn
 test('starting medkit, empty materials, recipe catalog and raw loot definitions', () => {
     const initial=new RunState(123);
 
-    assert.deepEqual([initial.inventory.width,initial.inventory.height,initial.inventory.items.length],[4,4,5],'restricted start plus medkit');
-    assert.deepEqual([kit(initial).gridX,kit(initial).gridY,kit(initial).healingAmount],[0,1,25],'starting medkit');
+    assert.deepEqual([initial.inventory.width,initial.inventory.height,initial.inventory.items.length],[4,4,4],'restricted start plus medkit');
+    assert.deepEqual([kit(initial).gridX,kit(initial).gridY,kit(initial).healingAmount],[1,1,25],'starting medkit');
     assert.deepEqual(initial.materials,{metal:0,electronics:0,fabric:0},'empty materials');
     assert.deepEqual(MATERIAL_CAPACITY,24,'shared material capacity');
-    assert.deepEqual(RECIPES.length,7,'all recipes known');
+    assert.deepEqual(RECIPES.length,12,'catalogue includes all bases');
     for(const [kind,definition]of Object.entries(ENEMY_DEFINITIONS))
         assert.ok(definition.reward.every(loot=>loot.kind==='material'||['power_core','precision_mechanism'].includes(loot.definitionId)),'enemies only drop raw loot '+kind);
     for(let sector=0;sector<SECTOR_DEFINITIONS.length;sector++)
@@ -62,36 +63,40 @@ test('partial material pickup retains remainder; limits and rejected combat tran
 });
 
 test('all recipes debit exact costs and inventory components in stable ID order', () => {
-    const expected={weak_battery:[2,1,0],heavy_battery:[3,3,0],copper_wire:[1,1,0],
+    const expected={dagger:[2,0,1],battle_axe:[4,0,1],combat_bra:[1,0,2],steel_armor:[4,0,3],arc_baton:[3,2,0],weak_battery:[2,1,0],heavy_battery:[3,3,0],copper_wire:[1,1,0],
         step_up_transformer:[2,3,0],laser_pistol:[5,4,0],makeshift_vest:[3,0,4],medkit:[0,1,2]};
     for(const recipe of RECIPES){
         assert.deepEqual([recipe.materials.metal,recipe.materials.electronics,recipe.materials.fabric],expected[recipe.id],'recipe costs '+recipe.id);
-        const run=new RunState(13);workshop(run);
+        const run=new RunState(13);
+        let recipeId=recipe.id;
+        if(['copper_wire','step_up_transformer'].includes(recipeId))run.learnUtilityRecipe(recipeId);
+        else if(!run.knownRecipes.some(r=>r.id===recipeId))recipeId=learnBase(run,recipeId);
+        workshop(run);
         Object.assign(run.materials,recipe.materials);
         for(const [definitionId,count]of Object.entries(recipe.components))for(let n=0;n<count;n++)put(run,definitionId);
         const before=[run.worldTurn,run.rngState,run.playerHp],inventory=run.inventory.items.slice();
-        assert.ok(run.previewRecipe(recipe.id).canCraft,'available recipe '+recipe.id);
-        const result=run.craftRecipe(recipe.id);
+        assert.ok(run.previewRecipe(recipeId).canCraft,'available recipe '+recipe.id);
+        const result=run.craftRecipe(recipeId);
         assert.ok(result&&result.definitionId===recipe.outputDefinitionId,'craft output '+recipe.id);
         assert.deepEqual(run.materials,{metal:0,electronics:0,fabric:0},'exact material debit '+recipe.id);
         assert.ok(run.workshopItems.includes(result)&&!run.inventory.items.includes(result),'bench owns crafted item '+recipe.id);
         assert.ok(inventory.filter(i=>i.type!=='component').every(i=>run.inventory.items.includes(i)),'craft retains equipment '+recipe.id);
         assert.deepEqual([run.worldTurn,run.rngState,run.playerHp],before,'craft freezes world '+recipe.id);
         const snapshot=JSON.stringify([run.materials,run.inventory.items.map(i=>i.id),run.workshopItems.map(i=>i.id)]);
-        assert.deepEqual(run.craftRecipe(recipe.id),null,'insufficient repeated craft rejected '+recipe.id);
+        assert.deepEqual(run.craftRecipe(recipeId),null,'insufficient repeated craft rejected '+recipe.id);
         assert.deepEqual(JSON.stringify([run.materials,run.inventory.items.map(i=>i.id),run.workshopItems.map(i=>i.id)]),snapshot,'rejected craft is atomic '+recipe.id);
     }
-    const run=new RunState(99);Object.assign(run.materials,{metal:3,electronics:3});
-    assert.ok(!run.previewRecipe('heavy_battery').canCraft,'craft unavailable outside workshop');
+    const run=new RunState(99);const heavyId=learnBase(run,'heavy_battery');Object.assign(run.materials,{metal:3,electronics:3});
+    assert.ok(!run.previewRecipe(heavyId).canCraft,'craft unavailable outside workshop');
     workshop(run);const before=materialSnapshot(run);
-    assert.ok(!run.previewRecipe('heavy_battery').canCraft,'missing core explained');
-    assert.deepEqual(run.craftRecipe('heavy_battery'),null,'missing component rejects');
+    assert.ok(!run.previewRecipe(heavyId).canCraft,'missing core explained');
+    assert.deepEqual(run.craftRecipe(heavyId),null,'missing component rejects');
     assert.deepEqual(materialSnapshot(run),before,'missing component does not debit material');
     const first=put(run,'power_core'),second=put(run,'power_core');first.id='z-core';second.id='a-core';
     // Rebuild only this isolated fixture's occupancy after choosing explicit IDs.
     for(const row of run.inventory.grid)row.fill(null);
     for(const item of run.inventory.items)for(let y=item.gridY;y<item.gridY+item.height;y++)for(let x=item.gridX;x<item.gridX+item.width;x++)run.inventory.grid[y][x]=item.id;
-    assert.ok(run.craftRecipe('heavy_battery')!==null,'craft with two possible cores');
+    assert.ok(run.craftRecipe(heavyId)!==null,'craft with two possible cores');
     assert.ok(run.inventory.items.includes(first)&&!run.inventory.items.includes(second),'components consumed in stable ID order');
 });
 
@@ -132,7 +137,7 @@ test('medkits enforce HP and ownership limits in exploration and workshop', () =
 });
 
 test('combat healing replaces attack, charges only armor and needs no weapon', () => {
-    const run=new RunState(8);run.playerHp=50;const {weapon,armor}=gear(run),medkit=kit(run);
+    const run=electricLoadout(new RunState(8));run.playerHp=50;const {weapon,armor}=gear(run),medkit=kit(run);
     run.beginEncounter(run.enemies.find(e=>e.kind==='scorpion').id);
     const before={hp:run.combatEngine.enemyHp,world:run.worldTurn,rng:run.rngState,
         high:run.inventory.items.find(i=>i.voltageType==='high'&&i.type==='battery').charge,
@@ -202,14 +207,14 @@ test('healing and aid station apply before monster contact', () => {
 });
 
 test('craft output construction failure is atomic; bench components are unavailable', () => {
-    const run=new RunState(24);workshop(run);Object.assign(run.materials,{metal:2,electronics:1});
+    const run=new RunState(24);const heavyId=learnBase(run,'heavy_battery');workshop(run);Object.assign(run.materials,{metal:2,electronics:1});
     const snapshot=materialSnapshot(run),items=run.workshopItems.length,create=run.createItem;
     run.createItem=()=>{throw Error('Injected output construction failure')};
     let failed=false;try{run.craftRecipe('weak_battery')}catch{failed=true}
     assert.ok(failed,'output failure fixture executed');assert.deepEqual([materialSnapshot(run),run.workshopItems.length],[snapshot,items],'output failure has no partial debit');
     run.createItem=create;Object.assign(run.materials,{metal:3,electronics:3});
     run.putOnGround(run.createItem('power_core'));
-    assert.ok(!run.previewRecipe('heavy_battery').canCraft,'component left on bench cannot be consumed as inventory ingredient');
+    assert.ok(!run.previewRecipe(heavyId).canCraft,'component left on bench cannot be consumed as inventory ingredient');
 });
 
 test('both boss encounter initiators preserve reward position and apply expansion once', () => {

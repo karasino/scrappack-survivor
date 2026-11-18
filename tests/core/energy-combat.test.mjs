@@ -15,8 +15,8 @@ const energyFixture = (options = {}) => {
         if(!inventory.placeItem(item,0,i))throw Error('Invalid fixture');
         return item;
     });
-    const weapon = new Item({...LootTable.find(i=>i.type==='weapon'),id:'gun',energyCost:options.weaponCost ?? 2});
-    const armor = new Item({...LootTable.find(i=>i.type==='armor'),id:'vest',energyCost:options.armorCost ?? 1});
+    const weapon = new Item({...LootTable.find(i=>i.definitionId==='laser_pistol'),id:'gun',energyCost:options.weaponCost ?? 2});
+    const armor = new Item({...LootTable.find(i=>i.definitionId==='makeshift_vest'),id:'vest',energyCost:options.armorCost ?? 1});
     inventory.placeItem(weapon,2,0);inventory.placeItem(armor,2,2);
     weapon.isPowered=options.weaponConnected ?? true;
     armor.isPowered=options.armorConnected ?? true;
@@ -172,9 +172,9 @@ const energyCase = (options = {}) => {
         charge,maxCharge:5,voltageType:'low'
     }));
     batteries.forEach((item, i) => inventory.placeItem(item,0,i*2));
-    const weapon = new Item({ ...LootTable.find(i=>i.type==='weapon'),
+    const weapon = new Item({ ...LootTable.find(i=>i.definitionId==='laser_pistol'),
         id:'weapon',width:1,requiredVoltage:'low',energyCost:options.weaponCost ?? 2 });
-    const armor = new Item({ ...LootTable.find(i=>i.type==='armor'),
+    const armor = new Item({ ...LootTable.find(i=>i.definitionId==='makeshift_vest'),
         id:'armor',width:1,height:1,energyCost:options.armorCost ?? 1, poweredArmor: options.shield ?? 8 });
     inventory.placeItem(weapon,2,0);
     inventory.placeItem(armor,2,2);

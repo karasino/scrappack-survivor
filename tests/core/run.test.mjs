@@ -4,8 +4,8 @@ import { runFullCraftingRun } from './scenarios/full-run.mjs';
 
 test('seed 123 completes two sectors with earned resources and deterministic final state', () => {
     assert.deepEqual(runFullCraftingRun(), {
-        seed: 123, hp: 76, fights: 7, steps: 52, healingActions: 2,
+        seed: 123, hp: 24, fights: 7, steps: 50, healingActions: 2,
         sectorOneBudget: { metal: 8, electronics: 7, fabric: 4 },
-        size: [5, 4], finalItem: 'heavy_battery'
+        size: [5, 4], finalItem: 'arc_baton'
     });
 });

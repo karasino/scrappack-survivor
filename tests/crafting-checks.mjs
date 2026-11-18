@@ -1,13 +1,15 @@
+import { runBlueprintChecks } from './blueprint-checks.mjs';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 
 // Browser coverage retains actual Phaser input, crafting UI and both renderers.
 export async function runCraftingChecks({ evaluate, read, check, mouse, click, send, renderer }) {
+    await runBlueprintChecks({ evaluate, read, check, mouse, click, send, renderer });
     await evaluate('freshRun()');
     await send('Emulation.setDeviceMetricsOverride',{width:1366,height:650,deviceScaleFactor:1,mobile:false});
     await delay(100);await evaluate('s.applyLayout()');
-    await check('[s.inventory.width,s.inventory.height,s.inventory.items.length]',[4,4,5],'crafting UI starts with restricted backpack and medkit');
+    await check('[s.inventory.width,s.inventory.height,s.inventory.items.length]',[4,4,4],'crafting UI starts with restricted backpack and medkit');
     await check('s.healButton.enabled',false,'full-health HEAL control disabled');
     const directory=join(process.cwd(),'artifacts','crafting');
     await mkdir(directory,{recursive:true});
@@ -61,10 +63,11 @@ export async function runCraftingChecks({ evaluate, read, check, mouse, click, s
     await evaluate("s.run.putMaterialOnGround('electronics',3);s.updateCombatUI()");
     await capture('wide-loot');
 
+    await evaluate('(async()=>{await freshElectricRun();s.run.enemies=[];globalThis.heavyRecipeId=await learnFixtureBlueprint("heavy_battery");s.run.learnUtilityRecipe("copper_wire");s.run.learnUtilityRecipe("step_up_transformer")})()');
     // This isolated UI fixture complements the ordinary complete-run test above.
     await evaluate("s.run.hero={...s.run.map.exit};s.performWorldAction({type:'exit'});Object.assign(s.run.materials,{metal:3,electronics:3,fabric:0});s.run.putOnGround(s.run.createItem('power_core'));s.groundPage=0;s.updateCombatUI()");
-    await check('[s.run.mode,s.workshopView.rows.length,s.workshopView.continueButton.label.text]', ['workshop',7,'CONTINUE'],'workshop opens all recipes');
-    await button('s.workshopView.rows[1]');
+    await check('[s.run.mode,s.workshopView.rows.length,s.workshopView.continueButton.label.text]', ['workshop',4,'CONTINUE'],'workshop shows four known recipes per page');
+    await button('s.workshopView.nextButton');await button('s.workshopView.rows[0]');
     await check('s.workshopView.craftButton.enabled',false,'recipe requires physical component in backpack');
     const coreId=await read("s.run.itemsAtHero().find(i=>i.definitionId==='power_core').id");
     await drag(coreId,375,225);
@@ -91,12 +94,12 @@ export async function runCraftingChecks({ evaluate, read, check, mouse, click, s
     await check('(()=>{const v=s.visualItemsMap.get('+JSON.stringify(gunId)+');return[v===craftingSavedVisual,v.itemModel.quarterTurns,v.itemModel.gridX,v.itemModel.gridY,!!s.activeDrag]})()',
         [true,0,2,0,false],'compact resize cancels rotation preserving original');
     await check('[s.compact,s.backpackView]',[true,false],'compact workshop initially uses recipe view');
-    await button('s.workshopView.rows[4]');
+    await button('s.workshopView.rows[2]');
     await check('s.workshopView.craftButton.enabled',false,'expensive unavailable recipe remains disabled');
     await mouse('mouseMoved',20,580);
-    await check('[s.workshopView.rows[4].rect.lineWidth,s.workshopView.rows[4].rect.strokeColor]',[2,0xc9aa72],'selected recipe frame survives pointerout');
-    await mouse('mouseMoved',400,150+4*28+13);
-    await check('[s.workshopView.rows[4].rect.lineWidth,s.workshopView.rows[4].rect.strokeColor]',[2,0xc9aa72],'selected recipe frame survives hover');
+    await check('[s.workshopView.rows[2].rect.lineWidth,s.workshopView.rows[2].rect.strokeColor]',[2,0xc9aa72],'selected recipe frame survives pointerout');
+    await mouse('mouseMoved',400,150+2*28+13);
+    await check('[s.workshopView.rows[2].rect.lineWidth,s.workshopView.rows[2].rect.strokeColor]',[2,0xc9aa72],'selected recipe frame survives hover');
     await check('s.workshopView.hint.getBounds().bottom<=600',true,'compact missing-ingredients hint and loss warning fit viewport');
     await capture('compact-workshop');
     await key('b','KeyB',66);await check('s.backpackView',true,'B opens backpack in workshop');
@@ -123,7 +126,7 @@ export async function runCraftingChecks({ evaluate, read, check, mouse, click, s
     await check('s.messages.some(message=>/restored|healed/i.test(message))',true,'combat log describes healing');
     await capture('wide-healing');
 
-    await evaluate('freshRun()');
+    await evaluate('freshElectricRun()');
     await evaluate("s.run.playerHp=50;const weapon=s.inventory.items.find(i=>i.type==='weapon');s.inventory.removeItem(weapon.id);s.run.beginEncounter(s.run.enemies.find(e=>e.kind==='scorpion').id);s.combatEngine=s.run.combatEngine;s.backpackView=true;s.updateCombatUI()");
     await check('[s.canEndTurn(),s.healButton.enabled]',[false,true],'HEAL remains available without a weapon');
     await button('s.healButton');

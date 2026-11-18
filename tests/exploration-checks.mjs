@@ -31,7 +31,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     };
     await evaluate('freshRun()');
     await viewport(1366,650);
-    await check('[s.compact,s.scale.width,s.scale.height,s.run.mode,s.inventory.items.length]',[false,1248,640,'exploration',5],'wide new run');
+    await check('[s.compact,s.scale.width,s.scale.height,s.run.mode,s.inventory.items.length]',[false,1248,640,'exploration',4],'wide new run');
     await check("s.children.getAll().some(o=>o.type==='Text'&&o.text==='SCAVENGE SCRAP')",false,'scavenge is absent');
     await capture('wide-exploration');
     await mouse('mouseMoved',1049,225);
@@ -39,7 +39,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     await evaluate('s.performWorldAction({type:"wait"})');
     await mouse('mouseMoved',1050,226);
     await check('s.enemyNameText.text','Scrap Rat','hover over same monster recovers after a world action');
-    await evaluate('freshRun()');await viewport(1366,650);
+    await evaluate('freshElectricRun()');await viewport(1366,650);
     await evaluate('s.run.enemies=[];s.updateCombatUI()');
     // Keep the key held while sending its repeat, matching a real keyboard gesture.
     await send('Input.dispatchKeyEvent',{type:'keyDown',key:'d',code:'KeyD',windowsVirtualKeyCode:68});
@@ -111,7 +111,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     await check(`(()=>{const v=s.visualItemsMap.get(${JSON.stringify(gunId)}),i=v.itemModel;return [v===savedVisual,!!s.activeDrag,
         i.gridX,i.gridY,i.width,i.height,v.image.angle]})()`,[true,false,2,0,2,1,0],'resize restores drag position and orientation without recreation');
 
-    await evaluate('freshRun()');await viewport(1366,650);
+    await evaluate('freshElectricRun()');await viewport(1366,650);
     await evaluate('s.run.hero={x:4,y:0};s.updateCombatUI()');
     await click(1049,225);
     await check('[s.run.mode,s.run.worldTurn,s.canEndTurn()]',['combat',1,true],'contact opens selected combat loadout');
@@ -147,7 +147,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
     await check('s.run.mode','complete','final workshop finishes demo');
     const oldSeed=await read('s.run.seed');await click(408,576);
     await waitFor("s.run.mode==='exploration'",'NEW RUN button starts a fresh session');
-    await check('[s.run.mode,s.run.sectorIndex,s.run.worldTurn,s.run.playerHp,s.inventory.items.length]',['exploration',0,0,100,5],'new run resets resources');
+    await check('[s.run.mode,s.run.sectorIndex,s.run.worldTurn,s.run.playerHp,s.inventory.items.length]',['exploration',0,0,100,4],'new run resets resources');
     assert.notEqual(await read('s.run.seed'),oldSeed,`${renderer}: new run chooses another seed`);
     console.log(`PASS ${renderer}: UI controls, four viewports, resize rollback, ground ownership, repeated combat and two-sector completion`);
     await runLocationFeedbackChecks({evaluate,read,check,mouse,click,send,renderer});

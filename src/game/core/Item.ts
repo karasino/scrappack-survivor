@@ -1,3 +1,5 @@
+import { capacityDelta, traitsFor, validVariant, variantName } from './ItemVariants';
+import type { ItemTraits, ItemVariant } from './ItemVariants';
 export type ItemType = 'weapon' | 'armor' | 'battery' | 'wire' | 'transformer' | 'component' | 'consumable';
 export type VoltageType = 'low' | 'high';
 export type TransformDirection = 'low-to-high' | 'high-to-low' | null;
@@ -41,12 +43,18 @@ export interface ItemConfig {
     connectionPorts?: DirectionVector[];
     quarterTurns?: number;
     healingAmount?: number;
+    powerMode?: 'none' | 'optional';
+    variant?: ItemVariant;
 }
 
 export class Item {
     public id: string;
     public readonly definitionId: string | null;
     public name: string;
+    public readonly baseName: string;
+    public readonly powerMode: 'none' | 'optional';
+    public readonly variant: ItemVariant | null;
+    public readonly traits: ItemTraits;
     public width: number;
     public height: number;
     public color: number;
@@ -79,7 +87,12 @@ export class Item {
     constructor(config: ItemConfig) {
         this.id = config.id;
         this.definitionId = config.definitionId ?? null;
-        this.name = config.name;
+        if (config.variant && (config.variant.baseDefinitionId !== config.definitionId || !validVariant(config.variant))) throw new Error('Invalid item variant.');
+        this.variant = config.variant ? Object.freeze({ ...config.variant }) : null;
+        this.traits = traitsFor(this.variant);
+        this.baseName = config.name;
+        this.name = this.variant ? variantName(config.name, this.variant, config.type === 'armor') : config.name;
+        this.powerMode = config.powerMode ?? ((config.type === 'armor' || config.type === 'weapon' || config.type === undefined) ? 'optional' : 'none');
         this.width = config.width;
         this.height = config.height;
         this.color = config.color;
@@ -94,6 +107,11 @@ export class Item {
         this.maxCapacity = config.maxCapacity ?? 0;
         this.charge = config.charge ?? this.capacity;
         this.maxCharge = config.maxCharge ?? config.maxCapacity ?? this.charge;
+        const delta = capacityDelta(this.variant);
+        this.maxCharge += delta;
+        this.maxCapacity += delta;
+        this.charge = config.charge === undefined ? this.charge + delta : Math.min(this.maxCharge, this.charge + delta);
+        this.capacity = this.charge;
         this.voltageType = config.voltageType ?? 'low';
         this.transformDirection = config.transformDirection ?? null;
         this.requiredVoltage = config.requiredVoltage ?? 'low';

@@ -1,3 +1,4 @@
+import { describeItem, traitLines, ownItemStats } from '../core/ItemVariants';
 import type { Item } from '../core/Item';
 import type { EnergyUnavailableReason, PoweredEffectPreview } from '../core/EnergyPlan';
 import { TOOLTIP_TEXT as TEXT } from './TooltipText';
@@ -30,13 +31,15 @@ export function buildItemTooltipContent(item: Item, powerPreview: PoweredEffectP
     switch (item.type) {
         case 'weapon':
         case 'armor': {
+            if (item.powerMode === 'none') { content.lines = describeItem(item).map(text => ({ text })); break; }
             const weapon = item.type === 'weapon';
+            const stats = ownItemStats(item);
             content.lines = [
-                line(weapon ? TEXT.baseDamage : TEXT.baseShield, weapon ? item.baseDamage : item.baseArmor, !powered),
-                line(weapon ? TEXT.poweredDamage : TEXT.poweredShield, weapon ? item.poweredDamage : item.poweredArmor,
+                line(weapon ? TEXT.baseDamage : TEXT.baseShield, weapon ? stats.baseDamage : stats.baseArmor, !powered),
+                line(weapon ? TEXT.poweredDamage : TEXT.poweredShield, weapon ? stats.poweredDamage : stats.poweredArmor,
                     powered, 'powered'),
                 line(TEXT.requiredVoltage, voltage),
-                line(TEXT.baseEnergyCost, `${formatTooltipNumber(Math.max(0, item.energyCost))} ${weapon ? TEXT.perAttack : TEXT.perTurnUsed}`),
+                line(TEXT.baseEnergyCost, `${formatTooltipNumber(stats.energyCost)} ${weapon ? TEXT.perAttack : TEXT.perTurnUsed}`),
                 line(TEXT.connectedBatteries, inGrid ? item.connectedBatteries.length : 0)
             ];
             if (inGrid && !powered && powerPreview.reason !== null) {
@@ -67,6 +70,7 @@ export function buildItemTooltipContent(item: Item, powerPreview: PoweredEffectP
             }
             break;
         case 'wire':
+            content.lines = [{ text: 'Energy cost -20% once per path.' }];
             break;
         case 'component':
             content.lines = [{ text: 'Used in workshop recipes.' }, { text: 'Carry in your backpack to craft.' }];
@@ -79,5 +83,6 @@ export function buildItemTooltipContent(item: Item, powerPreview: PoweredEffectP
                 { text: 'Workshop: no world turn.' }];
             break;
     }
+    if (item.powerMode !== 'none' || item.type === 'battery') content.lines.push(...traitLines(item.variant).map(text => ({ text })));
     return content;
 }

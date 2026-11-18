@@ -86,7 +86,7 @@ export async function runItemFeedbackChecks(context){
 
 export async function runLocationFeedbackChecks(context){
     const {evaluate,read,check,mouse,click,send,renderer}=context;
-    await evaluate('freshRun()');
+    await evaluate('freshElectricRun()');
     await send('Emulation.setDeviceMetricsOverride',{width:1366,height:650,deviceScaleFactor:1,mobile:false});
     await delay(100);await evaluate('s.applyLayout();s.run.enemies=[];s.updateCombatUI()');
     await check('[s.groundTitle.text,s.groundStatus.text]',['GROUND','Items on your current tile'],'normal tile retains neutral ground title');
@@ -130,6 +130,6 @@ export async function runLocationFeedbackChecks(context){
     await check('[s.groundTitle.text,s.groundStatus.text,s.run.aidStations[0].used]',['FIRST AID STATION','Used · No healing remaining',true],'station keeps location title after use');
     await evaluate('s.run.requiredBossId=null;s.run.hero={...s.run.map.exit};s.performWorldAction({type:"exit"})');
     await check('[s.groundTitle.text,s.groundStatus.text]',['BENCH','Crafted and dropped items'],'workshop always names bench');
-    await evaluate('freshRun()');
+    await evaluate('freshElectricRun()');
     console.log('PASS '+renderer+': location titles, unsearched/searched/empty states, safe drop area and aid-station explanations');
 }

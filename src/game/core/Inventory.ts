@@ -7,6 +7,7 @@ interface PowerWave {
     sourceBattery: Item;
     entryPort: DirectionVector | null;
     energyCostMultiplier: number;
+    hasWire: boolean;
 }
 
 export class Inventory {
@@ -115,7 +116,7 @@ export class Inventory {
 
             // Одна ячейка может проводить оба напряжения от разных батарей.
             const entry = wave.entryPort === null ? 'source' : `${wave.entryPort.x},${wave.entryPort.y}`;
-            const key = `${wave.x},${wave.y},${wave.voltage},${entry}`;
+            const key = `${wave.x},${wave.y},${wave.voltage},${entry},${wave.hasWire}`;
             const previousMultiplier = visited.get(key);
             if (previousMultiplier === undefined || wave.energyCostMultiplier < previousMultiplier) {
                 visited.set(key, wave.energyCostMultiplier);
@@ -134,7 +135,7 @@ export class Inventory {
                         voltage: battery.voltageType,
                         sourceBattery: battery,
                         entryPort: null,
-                        energyCostMultiplier: 1.0
+                        energyCostMultiplier: 1.0, hasWire: false
                     });
                 }
             }
@@ -188,10 +189,10 @@ export class Inventory {
                 }
 
                 if (neighbor.type === 'weapon' || neighbor.type === 'armor') {
-                    if (wave.voltage === neighbor.requiredVoltage) {
+                    if (neighbor.powerMode !== 'none' && wave.voltage === neighbor.requiredVoltage) {
                         const connection: ConnectedBattery = {
                             batteryId: wave.sourceBattery.id,
-                            costMultiplier: wave.energyCostMultiplier
+                            costMultiplier: wave.energyCostMultiplier * (wave.hasWire ? 0.8 : 1)
                         };
                         const existingConnection = neighbor.connectedBatteries.find(
                             battery => battery.batteryId === connection.batteryId
@@ -259,7 +260,7 @@ export class Inventory {
                     voltage,
                     sourceBattery: wave.sourceBattery,
                     entryPort,
-                    energyCostMultiplier
+                    energyCostMultiplier, hasWire: wave.hasWire || neighbor.type === 'wire'
                 });
             }
         }

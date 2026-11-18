@@ -13,9 +13,9 @@ import { buildItemTooltipContent } from '../ui/ItemTooltipContent';
 import { canUsePoweredEffect, previewPoweredEffect } from '../core/EnergyPlan';
 import { UITheme, cssColor } from '../ui/UITheme';
 import { ITEM_PRESENTATIONS } from '../ui/ItemPresentation';
-import { LootTable } from '../core/LootTable';
 import { MATERIAL_CAPACITY, MATERIAL_NAMES, RECIPES } from '../core/Crafting';
 import { ViewButton } from '../ui/ViewButton';
+import { BlueprintChoiceView } from '../ui/BlueprintChoiceView';
 import { WorkshopView } from '../ui/WorkshopView';
 import { RunOverlayView } from '../ui/RunOverlayView';
 import { buildGroundPanelContent } from '../ui/GroundPanelContent';
@@ -35,6 +35,9 @@ export class GameScene extends Phaser.Scene {
     public compact = false;
     public backpackView = false;
     public mapView!: ExplorationMapView;
+    public blueprintChoice!: BlueprintChoiceView;
+    private modalInputUntil = 0;
+    private readonly handledWorldKeys = new WeakSet<KeyboardEvent>();
     public workshopView!: WorkshopView;
     public runOverlay!: RunOverlayView;
     public healButton!: ViewButton;
@@ -193,6 +196,9 @@ export class GameScene extends Phaser.Scene {
     }
 
     update(): void {
+        if (this.modalInputUntil > 0 && this.time.now >= this.modalInputUntil) {
+            this.modalInputUntil = 0; this.updateCombatUI();
+        }
         if (this.nextAllowedTurnAt > 0 && this.time.now >= this.nextAllowedTurnAt) {
             this.nextAllowedTurnAt = 0;
             this.updateCombatUI();
@@ -223,6 +229,7 @@ export class GameScene extends Phaser.Scene {
         window.removeEventListener('resize', this.resizeHandler);
         this.mapView?.destroy();
         this.workshopView?.destroy();
+        this.blueprintChoice?.destroy();
         this.runOverlay?.destroy();
         this.healButton?.destroy();
         this.takeMaterialButton?.destroy();
@@ -418,8 +425,15 @@ export class GameScene extends Phaser.Scene {
             .setWordWrapWidth(UITheme.ground.width - 24, true).setLineSpacing(8);
         this.takeMaterialButton = new ViewButton(this, 'TAKE', () => this.collectGroundMaterial())
             .place(UITheme.ground.x + 32, UITheme.ground.y + 88, 138, 36);
-        this.workshopView = new WorkshopView(this, RECIPES, () => this.updateCombatUI(),
+        this.workshopView = new WorkshopView(this, this.run.knownRecipes, () => this.updateCombatUI(),
             () => this.craftSelectedRecipe(), () => this.continueWorkshop());
+        this.blueprintChoice = new BlueprintChoiceView(this, (cacheId, recipeId) => {
+            if (this.run.chooseBlueprint(cacheId, recipeId)) {
+                this.modalInputUntil = this.time.now + 350;
+                this.appendMessage('BLUEPRINT LEARNED: craft this recipe in a workshop.');
+                this.updateCombatUI();
+            }
+        }, () => this.closeBlueprintChoice());
         this.runOverlay = new RunOverlayView(this, () => {
             this.runOverlay.setKind(null);
             this.updateCombatUI();
@@ -428,7 +442,11 @@ export class GameScene extends Phaser.Scene {
         }, () => this.acknowledgeReward());
     }
 
-    private hasOverlay(): boolean { return this.run.mode === 'boss-reward' || (this.runOverlay?.kind ?? null) !== null; }
+    private closeBlueprintChoice(): void {
+        if (this.run.closeBlueprintChoice()) { this.modalInputUntil = this.time.now + 350; this.updateCombatUI(); }
+    }
+
+    private hasOverlay(): boolean { return !!this.run.activeBlueprintChoice || this.time.now < this.modalInputUntil || this.run.mode === 'boss-reward' || (this.runOverlay?.kind ?? null) !== null; }
 
     public openMaterials(): void {
         if (this.activeDrag || this.isProcessingTurn || this.hasOverlay()) return;
@@ -511,26 +529,9 @@ export class GameScene extends Phaser.Scene {
         if (this.run.mode !== 'workshop') return;
         const preview = this.run.previewRecipe(this.workshopView.selectedRecipe);
         const recipe = preview.recipe;
-        const componentName = (id: string): string => LootTable.find(item => item.definitionId === id)?.name ?? id;
-        const output = LootTable.find(item => item.definitionId === recipe?.outputDefinitionId);
-        const description = output?.type === 'battery' ? `Charge: ${output.charge} / ${output.maxCharge} — ${output.voltageType === 'low' ? 'Low' : 'High'} voltage`
-            : output?.type === 'weapon' ? `Damage: ${output.baseDamage} / ${output.poweredDamage} powered`
-                : output?.type === 'armor' ? `Shield: ${output.baseArmor} / ${output.poweredArmor} powered`
-                    : output?.type === 'consumable' ? `Restores up to ${output.healingAmount} HP. Field/combat: one turn.`
-                        : output?.type === 'wire' ? 'Carries power between connected items.' : 'Low → High; +1 to energy cost multiplier.';
-        const cost = recipe ? [
-            ...(['metal', 'electronics', 'fabric'] as const).filter(type => recipe.materials[type] > 0)
-                .map(type => `${MATERIAL_NAMES[type]} ${recipe.materials[type]} (${this.run.materials[type]})`),
-            ...Object.entries(recipe.components).map(([id, amount]) => `${componentName(id)} ×${amount} (${this.inventory.items.filter(item => item.definitionId === id).length})`)
-        ].join('\n') : '';
-        const missingIngredients = Object.values(preview.missingMaterials).some(amount => amount > 0)
-            || Object.keys(preview.missingComponents).length > 0;
-        // Keep the footer to two lines at 800 × 600; the complete costs are listed above.
-        const reason = recipe && !this.activeDrag && missingIngredients
-            ? 'Missing ingredients. Costs show required (owned).' : preview.reason;
-        this.workshopView.refresh({ recipes: RECIPES, selectedId: this.workshopView.selectedRecipe,
-            details: `${recipe?.name ?? 'Select a recipe'}\n${description}\n${cost}`,
-            reason, canCraft: preview.canCraft, final: this.run.workshopFinal,
+        this.workshopView.refresh({ recipes: this.run.knownRecipes, selectedId: this.workshopView.selectedRecipe,
+            details: recipe ? [recipe.name.split(' · ')[0], ...this.run.describeRecipe(recipe.id)].join('\n') : 'Select a recipe',
+            reason: Object.values(preview.missingMaterials).some(n => n > 0) || Object.keys(preview.missingComponents).length ? 'Missing ingredients. Costs shown above.' : preview.reason, canCraft: preview.canCraft, final: this.run.workshopFinal,
             enabled: !this.hasOverlay() && !this.activeDrag && !this.isProcessingTurn && !this.hasCombatError });
     }
 
@@ -626,7 +627,10 @@ export class GameScene extends Phaser.Scene {
         else if (this.selectionError) hint = this.selectionError;
         else if (!valid || weapons.length > 1 || armors.length > 1) hint = 'INVALID SELECTION';
         else if (!weapons.length) hint = 'SELECT A WEAPON';
-        else hint = armors.length ? 'WEAPON + ARMOR READY' : 'WEAPON READY';
+        else {
+            const preview = engine!.previewAction({ type: 'attack', weaponId: weapons[0].id, armorId: armors[0]?.id ?? null });
+            hint = `DAMAGE ${preview.damageDealt} · SHIELD ${preview.shieldGenerated}\nHEAL ${preview.vampiricHealing} · RECOIL ${preview.recoilDamage} · HIT ${preview.damageTaken}`;
+        }
         this.hintText.setText(hint);
         this.endTurnLabel.setText(this.isRunFinished() || this.hasCombatError ? 'NEW RUN' : 'END TURN');
         this.refreshConsumerPowerVisuals();
@@ -641,6 +645,9 @@ export class GameScene extends Phaser.Scene {
         this.workshopView?.setVisible(this.run.mode === 'workshop' && (!this.compact || !this.backpackView));
         this.refreshWorkshop();
         this.runOverlay?.refresh(this.run);
+        const choice = this.run.activeBlueprintChoice;
+        if (choice) { this.hideTooltip(); this.blueprintChoice?.show(choice); }
+        else this.blueprintChoice?.hide();
     }
 
     private appendMessage(message: string): void {
@@ -810,6 +817,10 @@ export class GameScene extends Phaser.Scene {
                 ? `TURN ${String(this.completedTurns).padStart(2, '0')}: ${log.consumableUsedName} — HEALED ${log.healingRestored} HP`
                 : `TURN ${String(this.completedTurns).padStart(2, '0')}: ${log.weaponUsedName} — DAMAGE ${log.damageDealt}`);
             this.appendMessage(`ARMOR: ${log.armorUsedName ?? 'NONE'} — SHIELD ${log.shieldGenerated}`);
+            if (log.vampiricHealing || log.recoilDamage) this.appendMessage([
+                log.vampiricHealing ? `VAMPIRIC: +${log.vampiricHealing} HP` : '',
+                log.recoilDamage ? `PAINFUL: -${log.recoilDamage} HP` : ''
+            ].filter(Boolean).join(' · '));
             this.appendMessage(`HIT TAKEN: ${log.damageTaken}`);
             for (const name of removedNames) {
                 this.appendMessage(`BATTERY DEPLETED: ${name}`);
@@ -867,6 +878,8 @@ export class GameScene extends Phaser.Scene {
         this.activeDrag = null;
         this.dragOrigin = null;
         this.nextAllowedTurnAt = 0;
+        this.modalInputUntil = 0;
+        this.workshopView.page = 0;
         this.groundPage = 0;
         this.groundPageKey = '';
         this.hoveredEnemyId = null;
@@ -898,8 +911,13 @@ export class GameScene extends Phaser.Scene {
     }
 
     private handleWorldKey(event: KeyboardEvent): void {
+        // Resolve each queued DOM event at most once, including rapid key bursts.
+        if (this.handledWorldKeys.has(event)) return;
+        this.handledWorldKeys.add(event);
         if (this.hasOverlay()) {
-            if (event.key === 'Escape' && this.runOverlay.kind === 'materials') {
+            if (event.key === 'Escape' && this.run.activeBlueprintChoice) {
+                event.preventDefault(); this.closeBlueprintChoice();
+            } else if (event.key === 'Escape' && this.runOverlay.kind === 'materials') {
                 event.preventDefault();
                 this.runOverlay.setKind(null);
                 this.updateCombatUI();

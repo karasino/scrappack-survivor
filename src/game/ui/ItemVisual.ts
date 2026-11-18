@@ -64,7 +64,7 @@ export class ItemVisual {
         this.image = presentation && scene.textures.exists(presentation.textureKey)
             ? scene.add.image(startX, startY, presentation.textureKey).setOrigin(0.5) : null;
         const label = itemModel.type === 'consumable' ? '+25 HP'
-            : itemModel.type === 'component' ? itemModel.definitionId === 'power_core' ? 'CORE' : 'MECH' : itemModel.name;
+            : itemModel.type === 'component' ? itemModel.definitionId === 'power_core' ? 'CORE' : 'MECH' : itemModel.baseName;
         this.text = scene.add.text(startX + 5, startY + 5, label, {
             fontSize: `${UITheme.fonts.itemLabel}px`, color: cssColor(UITheme.colors.text),
             fontFamily: UITheme.fonts.family
@@ -203,7 +203,7 @@ export class ItemVisual {
         if (this.rect.input?.hitArea instanceof Phaser.Geom.Rectangle) {
             this.rect.input.hitArea.setSize(this.rect.width, this.rect.height);
         }
-        const consumerPlaceholder = this.image === null && (this.itemModel.type === 'weapon' || this.itemModel.type === 'armor');
+        const consumerPlaceholder = this.itemModel.powerMode !== 'none' && this.image === null && (this.itemModel.type === 'weapon' || this.itemModel.type === 'armor');
         const reserved = consumerPlaceholder ? UITheme.item.powerBadge.width + UITheme.item.powerBadge.margin : 0;
         this.text.setWordWrapWidth(Math.max(8, this.rect.width - 10 - reserved), true)
             .setMaxLines(Math.max(1, Math.floor((this.rect.height - 10) / (UITheme.fonts.itemLabel + 2))));
@@ -325,7 +325,7 @@ export class ItemVisual {
     private refreshPowerIndicator(): void {
         const graphics = this.powerGraphics.clear();
         const consumer = this.itemModel.type === 'weapon' || this.itemModel.type === 'armor';
-        if (!consumer || !this.callbacks.isPoweredEffectAvailable?.(this.itemModel)) return;
+        if (!consumer || this.itemModel.powerMode === 'none' || !this.callbacks.isPoweredEffectAvailable?.(this.itemModel)) return;
         const badge = UITheme.item.powerBadge;
         const x = this.rect.x + this.rect.width - badge.margin - badge.width;
         const y = this.rect.y + badge.margin;

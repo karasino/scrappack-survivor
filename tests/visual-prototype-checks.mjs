@@ -41,7 +41,7 @@ export async function runVisualPrototypeChecks({ evaluate, read, check, mouse, c
         if(cssColor(UITheme.colors.text)!=='#e6e2d8')throw Error('Theme primary text');
     })()`);
     await check('task5Legacy.definitionId',null,'legacy item configs remain valid');
-    await check('task5Definitions',['weak_battery','heavy_battery','copper_wire','step_up_transformer','laser_pistol','makeshift_vest','power_core','precision_mechanism','medkit'],
+    await check('task5Definitions',['dagger','battle_axe','combat_bra','steel_armor','arc_baton','weak_battery','heavy_battery','copper_wire','step_up_transformer','laser_pistol','makeshift_vest','power_core','precision_mechanism','medkit'],
         'loot definitions are stable');
     await check("s.visualItemsMap.get('scrap_battery_01').itemModel.definitionId",'rusty_battery','starter identity');
     await check("s.visualItemsMap.get('scrap_battery_01').image",null,'Rusty Battery keeps its own placeholder');
