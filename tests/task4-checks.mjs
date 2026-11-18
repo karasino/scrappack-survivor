@@ -78,7 +78,8 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     await check('tooltipTexts().includes("Charge: 2 / 2")',true,'loot battery values');
     await check('s.itemTooltip===tooltipInstance && s.children.length=== '+children,true,'single reused panel');
     await evaluate("s.visualItemsMap.get('bat').itemModel.charge=0.005");
-    await delay(50);
+    await waitFor('tooltipTexts().includes("Charge: <0.01 / 2") && tooltipTexts().includes("<1%")',
+        'stationary tiny charge refresh');
     await check('tooltipTexts().includes("Charge: <0.01 / 2") && tooltipTexts().includes("<1%")',true,'stationary tooltip refreshes tiny charge');
     const snapshot = await send('Page.captureScreenshot',{format:'png',clip:await read(`(()=>{const r=s.game.canvas.getBoundingClientRect();return {x:r.x,y:r.y,width:r.width,height:r.height,scale:1};})()`)});
     await writeFile(join(tmpdir(),`scrappack-tooltip-${renderer}.png`),Buffer.from(snapshot.data,'base64'));
@@ -126,7 +127,9 @@ export async function runTask4Checks({ evaluate, read, check, mouse, click, rest
     await evaluate(`seed([{type:'weapon',id:'gun',x:0,y:0}])`);
     await hover(225,175);
     await evaluate(`seed([{type:'battery',id:'source',x:2,y:0,voltageType:'high',charge:12,maxCharge:12}])`);
-    await delay(50);
+    // The open tooltip refreshes on the next Phaser frame, which can take longer on CI.
+    await waitFor('tooltipLabels().some(l=>l.text==="► Powered damage: 22")',
+        'stationary powered effect refresh');
     await check('tooltipLabels().find(l=>l.text.startsWith("►")).text','► Powered damage: 22','stationary active effect updates');
     await check('tooltipTexts().includes("Connected batteries: 1")',true,'current sources shown');
     await click(225,175);
