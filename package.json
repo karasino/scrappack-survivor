@@ -8,6 +8,7 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "test:combat-ui": "node tests/combat-ui.mjs",
+    "test:slow-ui": "node tests/combat-ui.mjs --slow-tooltip-only",
     "test:visual": "node tests/combat-ui.mjs --visual-only",
     "test:exploration": "node tests/combat-ui.mjs --exploration-only",
     "test:crafting": "node tests/combat-ui.mjs --crafting-only",

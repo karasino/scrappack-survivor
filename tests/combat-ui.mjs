@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { spawnCaptured, awaitReady, createCdp, stopOwnedProcess, writeFailureArtifacts } from './browser-harness.mjs';
 import { browserFixtureSource } from './browser-fixtures.mjs';
 import { runTask4Checks } from './task4-checks.mjs';
+import { runSlowTooltipChecks } from './slow-tooltip-checks.mjs';
 import { runEnergyPlanChecks } from './energy-plan-checks.mjs';
 import { runPowerReasonChecks } from './power-reason-checks.mjs';
 import { captureVisualScenarios } from './visual-scenarios.mjs';
@@ -117,6 +118,12 @@ try {
         const group = async (name, run) => { currentCheck = name; return run(); };
         const frame = () => delay(35);
         const restart = () => evaluate('reset()');
+
+        if (process.argv.includes('--slow-tooltip-only')) {
+            await group('slow tooltip refresh', () => runSlowTooltipChecks({ evaluate,read,check,mouse,restart,send,renderer,group }));
+            await cdp('Target.closeTarget',{targetId});
+            continue;
+        }
 
         if (process.argv.includes('--crafting-only')) {
             await group('crafting UI integration', () => runCraftingChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
@@ -308,6 +315,7 @@ try {
         await restart();
 
         await group('tooltips and connection arrows', () => runTask4Checks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+        await group('slow tooltip refresh', () => runSlowTooltipChecks({ evaluate,read,check,mouse,restart,send,renderer,group }));
         await group('energy allocation and transformer chain', () => runEnergyPlanChecks({ evaluate,read,check,mouse,click,restart,renderer }));
         await group('power shortage reasons', () => runPowerReasonChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
         await group('visual prototype', () => runVisualPrototypeChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));

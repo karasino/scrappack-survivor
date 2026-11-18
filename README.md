@@ -48,6 +48,7 @@ Enter в терминале, Ctrl+C или закрытие игровой вк�
 | `npm run test:core` | Правила инвентаря, энергии, боя, исследования, сборки и полный seed 123 без браузера |
 | `npm run build` | TypeScript и production-сборка |
 | `npm run test:combat-ui` | Ввод в бою, связь UI с энергопланом, тултипы и визуальные состояния |
+| `npm run test:slow-ui` | Только обновление открытого tooltip при замедлении CPU в 6 раз, Canvas/WebGL |
 | `npm run test:visual` | Только визуальная часть боевого набора |
 | `npm run test:exploration` | Ввод исследования, связь UI с RunState, переходы и раскладки |
 | `npm run test:crafting` | UI материалов, сборки, лечения, наград и модалок |
