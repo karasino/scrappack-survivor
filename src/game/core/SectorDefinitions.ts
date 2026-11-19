@@ -1,4 +1,5 @@
 import type { LootSpec } from './Crafting';
+import type { EnemyBehavior } from './EnemyIntent';
 
 export interface WorldPosition {
     x: number;
@@ -8,6 +9,7 @@ export interface WorldPosition {
 export type EnemyKind = 'rat' | 'scorpion' | 'brute';
 
 export interface EnemyDefinition {
+    behavior: EnemyBehavior;
     name: string;
     maxHp: number;
     damage: number;
@@ -36,16 +38,19 @@ export interface SectorProfile {
 
 export const ENEMY_DEFINITIONS: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     rat: {
+        behavior: 'scrap-rat',
         name: 'Scrap Rat', maxHp: 12, damage: 5, detectionRadius: 3, idlePeriod: 2,
         reward: [{ kind: 'material', material: 'metal', amount: 1 },
             { kind: 'material', material: 'electronics', amount: 1 }]
     },
     scorpion: {
+        behavior: 'rad-scorpion',
         name: 'Rad-Scorpion', maxHp: 24, damage: 8, detectionRadius: 4, idlePeriod: 3,
         reward: [{ kind: 'material', material: 'metal', amount: 2 },
             { kind: 'material', material: 'electronics', amount: 1 }]
     },
     brute: {
+        behavior: 'scrap-brute',
         name: 'Scrap Brute', maxHp: 66, damage: 14, detectionRadius: 4, idlePeriod: 3,
         isBoss: true,
         reward: [{ kind: 'item', definitionId: 'power_core', quantity: 2 },

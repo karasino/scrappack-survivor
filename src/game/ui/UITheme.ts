@@ -38,7 +38,7 @@ export const UITheme = {
     durations: { buttonHover: 120, tooltipDelay: 300, tooltipFade: 80, itemHover: 100 },
     item: { padding: 4, hoverScale: 1.03, powerBadge: { margin: 4, width: 14, height: 16, boltWidth: 8, boltHeight: 12 } },
     ground: { x: 562, y: 272, width: 202, height: 136 },
-    combat: { brace: { x: 24, y: 392, width: 152, height: 36, hintY: 432 }, tacticsY: 354 },
+    combat: { brace: { x: 24, y: 392, width: 152, height: 36, hintY: 432 }, tacticsY: 354, previewY: 430 },
     tooltip: { width: 280, padding: 12, cursorOffset: 16, viewportMargin: 8, chargeHeight: 8 },
     layers: { item: 10, draggedItem: 30, connections: 35, hud: 100, tooltip: 200 }
 } as const;

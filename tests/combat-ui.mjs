@@ -17,6 +17,7 @@ import { runExplorationChecks } from './exploration-checks.mjs';
 import { runCraftingChecks } from './crafting-checks.mjs';
 import { runItemFeedbackChecks } from './ui-feedback-checks.mjs';
 import { runTacticalCombatChecks } from './tactical-combat-checks.mjs';
+import { runOrdinaryEnemyChecks } from './ordinary-enemies-checks.mjs';
 
 const origin = 'http://127.0.0.1:4175';
 let profile;
@@ -120,6 +121,11 @@ try {
         const frame = () => delay(35);
         const restart = () => evaluate('reset()');
 
+        if (process.argv.includes('--ordinary-only')) {
+            await group('ordinary enemy abilities', () => runOrdinaryEnemyChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+            await cdp('Target.closeTarget',{targetId});
+            continue;
+        }
         if (process.argv.includes('--tactical-only')) {
             await group('tactical boss and defensive actions', () => runTacticalCombatChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
             await cdp('Target.closeTarget',{targetId});
@@ -323,6 +329,7 @@ try {
 
         await group('tooltips and connection arrows', () => runTask4Checks({ evaluate,read,check,mouse,click,restart,send,renderer }));
         await group('tactical boss and defensive actions', () => runTacticalCombatChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+        await group('ordinary enemy abilities', () => runOrdinaryEnemyChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
         await group('slow tooltip refresh', () => runSlowTooltipChecks({ evaluate,read,check,mouse,restart,send,renderer,group }));
         await group('energy allocation and transformer chain', () => runEnergyPlanChecks({ evaluate,read,check,mouse,click,restart,renderer }));
         await group('power shortage reasons', () => runPowerReasonChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));

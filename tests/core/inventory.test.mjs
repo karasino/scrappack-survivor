@@ -37,7 +37,7 @@ test('boss expansion stages preserve instances, reject invalid sizes and reward 
         run.applyBossReward(id,'Scrap Brute');
         assert.deepEqual([run.bossVictoryCount,run.allGroundItems().length],[index+1,count],'reward idempotence before acknowledgement '+index);
         assert.ok(!new ExplorationEngine(run).applyAction({type:'wait'}).accepted,'reward blocks world');
-        assert.ok(!run.dropMaterial('metal')&&run.useMedkit()===0,'reward blocks other commands');
+        assert.ok(!run.dropMaterial('metal')&&!run.useMedkit().accepted,'reward blocks other commands');
         assert.ok(run.acknowledgeBossReward(),'acknowledge reward');
         run.applyBossReward(id,'Scrap Brute');
         assert.deepEqual([run.bossVictoryCount,run.allGroundItems().length,run.mode],[index+1,count,'exploration'],'reward replay stays closed '+index);

@@ -4,6 +4,8 @@ import type { ItemVariant } from './ItemVariants';
 import { describeRecipe } from './ItemVariants';
 import { CombatEngine } from './CombatEngine';
 import type { CombatAction, CombatTurnLog } from './CombatEngine';
+import { tickPoison } from './PlayerStatus';
+import type { MedkitUseResult } from './PlayerStatus';
 import { Inventory } from './Inventory';
 import { Item } from './Item';
 import { LootTable } from './LootTable';
@@ -71,6 +73,7 @@ export class RunState {
     public readonly inventory = new Inventory(4, 4);
     public readonly playerMaxHp = 100;
     public playerHp = 100;
+    public playerPoisonTurns = 0;
     public readonly seed: number;
     public rngState: number;
     public sectorIndex = 0;
@@ -363,33 +366,63 @@ export class RunState {
             item.type === 'consumable' && item.healingAmount > 0).sort(compareIds)[0] ?? null;
     }
 
-    /** Internal resolution step: ExplorationEngine supplies the world turn/AI phase. */
-    public consumeMedkit(itemId: string): number {
-        if ((this.mode !== 'exploration' && this.mode !== 'workshop') || this.draggedItem ||
-            this.playerHp <= 0 || this.playerHp >= this.playerMaxHp || this.activeBlueprintChoice) return 0;
+    public medkitAvailability(itemId?: string, armorId?: string | null): { available: boolean; reason: string | null } {
+        const unavailable = (reason: string) => ({ available: false, reason });
+        if (this.draggedItem || this.activeBlueprintChoice) return unavailable('Finish the current action.');
+        if (!['exploration', 'workshop', 'combat'].includes(this.mode) || this.playerHp <= 0) return unavailable('Healing is unavailable.');
         const item = this.findMedkit(itemId);
-        if (!item) return 0;
+        if (!item) return unavailable('Craft a Medkit.');
+        if (this.mode === 'combat') {
+            const armors = this.inventory.items.filter(candidate => candidate.type === 'armor' && candidate.isSelectedForTurn);
+            if (armorId === undefined && armors.length > 1) return unavailable('Select at most one armor.');
+            return this.combatEngine?.actionAvailability({ type: 'heal', consumableId: item.id,
+                armorId: armorId === undefined ? armors[0]?.id ?? null : armorId }) ?? unavailable('No active encounter.');
+        }
+        return this.playerHp >= this.playerMaxHp && this.playerPoisonTurns === 0
+            ? unavailable('Health is full.') : { available: true, reason: null };
+    }
+
+    /** Internal resolution step: ExplorationEngine supplies the world turn/AI phase. */
+    public consumeMedkit(itemId: string): MedkitUseResult {
+        if ((this.mode !== 'exploration' && this.mode !== 'workshop') || !this.medkitAvailability(itemId).available)
+            return { accepted: false, healingRestored: 0, poisonCured: false };
+        const item = this.findMedkit(itemId)!;
         const restored = Math.min(item.healingAmount, this.playerMaxHp - this.playerHp);
+        const poisonCured = this.playerPoisonTurns > 0;
         this.inventory.removeItem(item.id);
         this.playerHp += restored;
-        return restored;
+        this.playerPoisonTurns = 0;
+        return { accepted: true, healingRestored: restored, poisonCured };
     }
 
     /** Safe convenience command: exploration healing always includes the monster phase. */
-    public useMedkit(itemId?: string, armorId?: string | null): number {
+    public useMedkit(itemId?: string, armorId?: string | null): MedkitUseResult {
+        const rejected = { accepted: false, healingRestored: 0, poisonCured: false };
+        if (!this.medkitAvailability(itemId, armorId).available) return rejected;
         const item = this.findMedkit(itemId);
-        if (!item || this.draggedItem) return 0;
+        if (!item) return rejected;
         if (this.mode === 'exploration') {
-            const before = this.playerHp;
             const result = new ExplorationEngine(this).applyAction({ type: 'heal', itemId: item.id });
-            return result.accepted ? this.playerHp - before : 0;
+            const healed = result.events.find(event => event.type === 'healed');
+            return { accepted: result.accepted, healingRestored: healed?.healingRestored ?? 0, poisonCured: healed?.poisonCured ?? false };
         }
         if (this.mode === 'workshop') return this.consumeMedkit(item.id);
-        if (this.mode !== 'combat' || !this.combatEngine || this.combatEngine.playerHp <= 0 ||
-            this.combatEngine.playerHp >= this.combatEngine.playerMaxHp) return 0;
         const armor = armorId === undefined ? this.inventory.items.filter(candidate =>
             candidate.type === 'armor' && candidate.isSelectedForTurn).sort(compareIds)[0]?.id ?? null : armorId;
-        return this.processCombatAction({ type: 'heal', consumableId: item.id, armorId: armor }).healingRestored;
+        const log = this.processCombatAction({ type: 'heal', consumableId: item.id, armorId: armor });
+        return { accepted: true, healingRestored: log.healingRestored, poisonCured: log.poisonCured };
+    }
+
+    /** Called exactly once per accepted world turn, before contacts or monster AI. */
+    public tickWorldPoison(): number {
+        const poison = tickPoison(this.playerHp, this.playerPoisonTurns);
+        this.playerHp = poison.hpAfter;
+        this.playerPoisonTurns = poison.turnsAfter;
+        if (this.playerHp <= 0) {
+            this.mode = 'defeat';
+            this.pendingBlueprintCacheId = null;
+        }
+        return poison.damage;
     }
 
     public isWalkable(position: WorldPosition): boolean {
@@ -463,7 +496,7 @@ export class RunState {
     }
 
     public beginEncounter(enemyId: string, initiator: EncounterInitiator = 'enemy'): void {
-        if (this.mode !== 'exploration' || this.draggedItem !== null || this.activeBlueprintChoice) {
+        if (this.mode !== 'exploration' || this.playerHp <= 0 || this.draggedItem !== null || this.activeBlueprintChoice) {
             throw new Error('An encounter can only begin during exploration without a dragged item.');
         }
         const enemy = this.getEnemy(enemyId);
@@ -472,7 +505,7 @@ export class RunState {
         this.victoryPosition = initiator === 'player' ? { x: enemy.x, y: enemy.y } : null;
         this.combatEngine = new CombatEngine(
             this.inventory, this.playerMaxHp, enemy.maxHp, enemy.damage, enemy.name, this.playerHp,
-            enemy.kind === 'brute' ? 'scrap-brute' : 'basic'
+            ENEMY_DEFINITIONS[enemy.kind].behavior, this.playerPoisonTurns
         );
         this.mode = 'combat';
     }
@@ -493,6 +526,7 @@ export class RunState {
         } finally {
             // A failed turn is not retried or rolled back; show the calculator's actual HP.
             this.playerHp = this.combatEngine.playerHp;
+            this.playerPoisonTurns = this.combatEngine.playerPoisonTurns;
         }
         if (log.isPlayerDead) {
             this.pendingBlueprintCacheId = null;

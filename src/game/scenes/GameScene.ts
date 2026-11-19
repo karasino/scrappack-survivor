@@ -8,6 +8,8 @@ import { ExplorationMapView } from '../ui/ExplorationMapView';
 import { ItemVisual } from '../ui/ItemVisual';
 import { CombatEngine } from '../core/CombatEngine';
 import type { CombatAction, CombatTurnLog } from '../core/CombatEngine';
+import { POISON_DAMAGE, POISON_TURNS } from '../core/PlayerStatus';
+import { RAT_TACTICS } from '../core/EnemyIntent';
 import { ItemTooltip } from '../ui/ItemTooltip';
 import { buildItemTooltipContent } from '../ui/ItemTooltipContent';
 import { canUsePoweredEffect, previewPoweredEffect } from '../core/EnergyPlan';
@@ -23,6 +25,12 @@ import { buildGroundPanelContent } from '../ui/GroundPanelContent';
 type BattleState = 'active' | 'victory' | 'defeat';
 
 const UI_DEPTH = UITheme.layers.hud;
+const intentName = (type: string) => type === 'venom-sting' ? 'VENOM STING' : type.toUpperCase();
+const actionEffects = (preview: CombatTurnLog): string => [
+    preview.poisonDamage ? `POISON ${preview.poisonDamage}` : '',
+    preview.poisonApplied ? `POISON → ${POISON_TURNS} turns` : '',
+    preview.batteryChargeDrained ? `CHARGE -${preview.batteryChargeDrained}` : ''
+].filter(Boolean).join(' · ');
 type HudObject = Phaser.GameObjects.Text | Phaser.GameObjects.Graphics | Phaser.GameObjects.Rectangle;
 interface DragOrigin { placed: boolean; x: number; y: number; orientation: number; }
 
@@ -45,6 +53,7 @@ export class GameScene extends Phaser.Scene {
     public braceHint!: Phaser.GameObjects.Text;
     public enemyIntentText!: Phaser.GameObjects.Text;
     public enemyTacticsText!: Phaser.GameObjects.Text;
+    public poisonText!: Phaser.GameObjects.Text;
     public materialPanel!: Phaser.GameObjects.Rectangle;
     public takeMaterialButton!: ViewButton;
     public groundMaterialText!: Phaser.GameObjects.Text;
@@ -335,6 +344,7 @@ export class GameScene extends Phaser.Scene {
         this.playerHpText = this.addLabel(36, 212, '', UITheme.fonts.body);
         this.shieldText = this.addLabel(36, 240, '', UITheme.fonts.body);
         this.hitText = this.addLabel(36, 262, '', UITheme.fonts.body);
+        this.poisonText = this.addLabel(36, 283, '', 11).setColor(cssColor(UITheme.colors.warning));
         this.uiSection = 'backpack';
         this.drawPanel(550, 56, 226, 126);
         // Scrap items are interactive above their panel background.
@@ -521,7 +531,7 @@ export class GameScene extends Phaser.Scene {
     private canHeal(): boolean {
         const armors = this.getSelection().armors;
         return !this.hasOverlay() && !this.activeDrag && !this.isProcessingTurn && !this.hasCombatError
-            && this.run.playerHp < this.run.playerMaxHp && this.medkits().length > 0
+            && this.run.medkitAvailability().available
             && (this.run.mode === 'exploration' || this.run.mode === 'workshop' ||
                 this.run.mode === 'combat' && armors.length <= 1 && this.time.now >= this.nextAllowedTurnAt);
     }
@@ -533,8 +543,8 @@ export class GameScene extends Phaser.Scene {
         if (this.run.mode === 'combat') this.resolveCombatAction('heal', kit.id);
         else if (this.run.mode === 'exploration') this.performWorldAction({ type: 'heal', itemId: kit.id }, true);
         else {
-            const restored = this.run.useMedkit(kit.id);
-            if (restored > 0) this.appendMessage(`MEDKIT: restored ${restored} HP.`);
+            const result = this.run.useMedkit(kit.id);
+            if (result.accepted) this.appendMessage(`MEDKIT: restored ${result.healingRestored} HP.${result.poisonCured ? ' POISON CURED.' : ''}`);
             this.updateCombatUI();
         }
     }
@@ -589,6 +599,8 @@ export class GameScene extends Phaser.Scene {
         };
         updateBar(this.playerHpFill, this.run.playerHp, this.run.playerMaxHp, 128);
         this.playerHpText.setText(`${this.run.playerHp} / ${this.run.playerMaxHp}`);
+        this.poisonText.setText(`POISON ${POISON_DAMAGE} HP x ${this.run.playerPoisonTurns}`)
+            .setVisible(this.run.playerPoisonTurns > 0);
         const hovered = this.run.getEnemy(this.hoveredEnemyId ?? '');
         const fighting = this.run.mode === 'combat' || this.run.mode === 'defeat' || this.run.mode === 'boss-reward';
         if (fighting && engine) {
@@ -626,9 +638,12 @@ export class GameScene extends Phaser.Scene {
         if (this.toggleButton?.input) this.toggleButton.input.enabled = toggleEnabled;
         this.materialText?.setText(`MATERIALS ${this.run.materialUsed} / ${MATERIAL_CAPACITY}\nScrap Metal: ${this.run.materials.metal}    Electronics: ${this.run.materials.electronics}    Fabric: ${this.run.materials.fabric}`);
         if (this.materialPanel?.input) this.materialPanel.input.enabled = !this.hasOverlay() && !this.activeDrag;
-        this.healButton?.setText(`HEAL +25 (${this.medkits().length})`).setEnabled(this.canHeal());
-        this.healHint?.setText(this.run.playerHp >= this.run.playerMaxHp ? 'Health is full.' : !this.medkits().length ? 'Craft a Medkit.'
-            : this.run.mode === 'combat' ? `Uses a combat turn.\nEnemy: ${engine?.enemyIntent?.type.toUpperCase() ?? '—'}.` : this.run.mode === 'workshop' ? 'Safe use. No turn.' : 'Uses one world turn.');
+        this.healButton?.setText(`${this.run.playerPoisonTurns > 0 ? 'HEAL / CURE' : 'HEAL +25'} (${this.medkits().length})`).setEnabled(this.canHeal());
+        const healing = this.run.medkitAvailability();
+        this.healHint?.setText(!healing.available ? healing.reason ?? 'Unavailable.'
+            : this.run.mode === 'combat' && engine?.enemyIntent?.type === 'venom-sting' ? 'Uses a combat turn.\nSTING applies poison.'
+                : this.run.playerPoisonTurns > 0 ? `Cures poison.\n${this.run.mode === 'workshop' ? 'Safe use. No turn.' : this.run.mode === 'combat' ? 'Uses a combat turn.' : 'Uses one world turn.'}`
+                    : this.run.mode === 'combat' ? `Uses a combat turn.\nEnemy: ${intentName(engine?.enemyIntent?.type ?? '—')}.` : this.run.mode === 'workshop' ? 'Safe use. No turn.' : 'Uses one world turn.');
 
         this.syncVisualItems();
         const { weapons, armors, valid } = this.getSelection();
@@ -647,9 +662,11 @@ export class GameScene extends Phaser.Scene {
             else {
                 const preview = engine!.previewAction(action);
                 hint = `${preview.isUnarmed ? 'UNARMED' : 'DAMAGE'} ${preview.damageDealt} · SHIELD ${preview.shieldGenerated}\nHEAL ${preview.vampiricHealing} · RECOIL ${preview.recoilDamage} · HIT ${preview.damageTaken}`;
+                if (actionEffects(preview)) hint += `\n${actionEffects(preview)}`;
             }
         }
-        this.hintText.setText(hint);
+        this.hintText.setY(this.run.mode === 'combat' ? UITheme.combat.previewY : 482)
+            .setMaxLines(this.run.mode === 'combat' ? 4 : 2).setText(hint);
         this.refreshBrace(showPack);
         this.endTurnLabel.setText(this.isRunFinished() || this.hasCombatError ? 'NEW RUN' : 'END TURN');
         this.refreshConsumerPowerVisuals();
@@ -734,7 +751,7 @@ export class GameScene extends Phaser.Scene {
         else if (!availability.available) this.braceHint.setText(availability.reason ?? 'Unavailable.');
         else {
             const preview = this.combatEngine.previewAction(action);
-            this.braceHint.setText(`SHIELD ${preview.shieldGenerated} · HIT ${preview.damageTaken}\nNo attack. Armor only.`);
+            this.braceHint.setText(`SHIELD ${preview.shieldGenerated} · HIT ${preview.damageTaken}\n${actionEffects(preview) || 'No attack. Armor only.'}`);
         }
     }
 
@@ -745,13 +762,16 @@ export class GameScene extends Phaser.Scene {
         this.enemyTacticsText?.setVisible(visible);
         if (!intent) return;
         this.groundTitle.setText('NEXT ACTION');
-        this.groundStatus.setText(`${intent.type.toUpperCase()} · ${intent.type === 'repair'
+        this.groundStatus.setText(`${intentName(intent.type)} · ${intent.type === 'repair'
             ? `Heal up to ${intent.healing} HP` : `${intent.damage} damage`}`);
-        this.enemyIntentText.setText(`${intent.reason}\n${intent.type === 'wind-up'
-            ? 'SLAM follows next turn.' : 'Resolves after your action.'}`);
+        this.enemyIntentText.setText(intent.type === 'gnaw'
+            ? `Drain up to ${RAT_TACTICS.chargeDrain} charge.\nHighest battery after costs.\nShield does not stop drain.`
+            : intent.type === 'venom-sting' ? `POISON: ${POISON_DAMAGE} HP x ${POISON_TURNS} turns.\nShield does not stop poison.\nMedkit cures poison.`
+                : `${intent.reason}\n${intent.type === 'wind-up' ? 'SLAM follows next turn.' : 'Resolves after your action.'}`);
         const tactics = this.combatEngine?.enemyTactics;
         this.enemyTacticsText.setText(tactics
-            ? `REPAIR uses left: ${tactics.repairUsesRemaining}\nREPAIR cooldown: ${tactics.repairCooldown}\nSLAM cooldown: ${tactics.slamCooldown}` : '');
+            ? `REPAIR uses left: ${tactics.repairUsesRemaining}\nREPAIR cooldown: ${tactics.repairCooldown}\nSLAM cooldown: ${tactics.slamCooldown}`
+            : this.combatEngine?.abilityCooldown !== null ? `ABILITY cooldown: ${this.combatEngine?.abilityCooldown}` : '');
     }
 
     private refreshButton(): void {
@@ -890,7 +910,12 @@ export class GameScene extends Phaser.Scene {
                 log.recoilDamage ? `PAINFUL: -${log.recoilDamage} HP` : ''
             ].filter(Boolean).join(' · '));
             this.appendMessage(`HIT TAKEN: ${log.damageTaken}`);
-            if (this.combatEngine?.enemyTactics) this.appendMessage(`ENEMY ${log.enemyAction.type.toUpperCase()}: ${log.enemyAction.type === 'repair'
+            if (log.poisonCured) this.appendMessage('POISON CURED.');
+            if (log.poisonDamage) this.appendMessage(`POISON: -${log.poisonDamage} HP.`);
+            if (log.poisonApplied) this.appendMessage(`VENOM STING: POISON ${POISON_DAMAGE} HP x ${POISON_TURNS} turns.`);
+            if (log.enemyAction.type === 'gnaw') this.appendMessage(log.batteryChargeDrained
+                ? `GNAW: ${log.batteryDrainedName} CHARGE -${log.batteryChargeDrained}.` : 'GNAW: No battery charge remaining.');
+            if (this.combatEngine?.enemyTactics) this.appendMessage(`ENEMY ${intentName(log.enemyAction.type)}: ${log.enemyAction.type === 'repair'
                 ? `HEALED ${log.enemyHealingRestored} HP` : `${log.enemyAction.damage} DAMAGE`}`);
             for (const name of removedNames) {
                 this.appendMessage(`BATTERY DEPLETED: ${name}`);

@@ -76,7 +76,7 @@ test('preview and availability are pure; failed BRACE and invalid IDs preserve a
         assert.equal(f.engine.actionAvailability(action).available,false);
         assert.throws(()=>f.engine.processAction(action));assert.equal(state(f),before);
     }
-    const {playerHpAfter,enemyHpAfter,plan,...expected}=preview;
+    const {playerHpAfter,enemyHpAfter,poisonTurnsAfter,plan,...expected}=preview;
     assert.deepEqual(f.engine.processAction(brace),expected);
     assert.deepEqual([f.engine.playerHp,f.engine.enemyHp],[playerHpAfter,enemyHpAfter]);
     const zero=fixture({shield:0});assert.equal(zero.engine.actionAvailability(brace).available,false);

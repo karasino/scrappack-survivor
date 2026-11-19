@@ -17,7 +17,7 @@
 
 `Inventory.updatePowerGrid()` определяет физические соединения; `EnergyPlan` чисто определяет доступность усиления и оплату. previewCombatAction чисто рассчитывает действие со свойствами выбранной сборки; preview и выполнение используют одну функцию. Tooltip получает собственные итоговые характеристики из core. Числа каталога и секторов не дублировать как вторую таблицу баланса.
 
-CombatEngine владеет фиксированным намерением врага и cooldown встречи. EnemyIntent содержит правила выбора профиля Scrap Brute; RunState передаёт профиль по kind. UI читает снимки и actionAvailability/previewAction для атаки, лечения и BRACE. UNARMED — атака с weaponId=null. Счётчики изменяются только после выполненного боевого действия, мировой RNG не используется.
+CombatEngine владеет фиксированным намерением врага и cooldown встречи. EnemyIntent содержит правила профилей Scrap Rat, Rad-Scorpion и Scrap Brute; RunState передаёт профиль по kind из SectorDefinitions. UI читает снимки и actionAvailability/previewAction для атаки, лечения и BRACE. UNARMED — атака с weaponId=null. Счётчики изменяются только после выполненного боевого действия, мировой RNG не используется. PlayerStatus задаёт чистый тик яда; RunState хранит его остаток между режимами и синхронизирует с CombatEngine вместе с HP, в том числе при исключении. Доступность Medkit рассчитывает core; результат accepted/healingRestored/poisonCured отличает очищение при полном HP от отказа.
 
 ## Режимы и жизненный цикл
 

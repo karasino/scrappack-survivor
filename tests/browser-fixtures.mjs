@@ -1,6 +1,6 @@
 // Development/test-only preparation. This function is serialized into the Vite page;
 // production code never imports this module or installs its globals.
-export const scenarioIds = ['transformer-chain', 'combat-heal', 'scrap-brute'];
+export const scenarioIds = ['transformer-chain', 'combat-heal', 'scrap-brute', 'rat-gnaw', 'scorpion-poison'];
 export const scenarioSeed = 170117;
 
 async function installBrowserFixtures(fixedSeed) {
@@ -105,6 +105,25 @@ async function installBrowserFixtures(fixedSeed) {
             seedTransformerChain();
         } else if (id === 'combat-heal') {
             await prepareCombatHeal();
+        } else if (id === 'rat-gnaw' || id === 'scorpion-poison') {
+            await freshRun(fixedSeed);
+            for (const visual of [...s.visualItemsMap.values()]) visual.destroy();
+            for (const item of [...s.inventory.items]) s.inventory.removeItem(item.id);
+            const layout = id === 'rat-gnaw'
+                ? [['dagger',0,0],['combat_bra',1,0],['weak_battery',0,1,5],['weak_battery',3,3,2],['medkit',1,1],['medkit',2,1]]
+                : [['dagger',0,0],['makeshift_vest',2,0],['weak_battery',2,2,5],['medkit',0,3],['medkit',1,3]];
+            for (const [definitionId,x,y,charge] of layout) {
+                const item=s.run.createItem(definitionId,charge);
+                item.isSelectedForTurn=item.type==='armor'||item.type==='weapon';
+                if(!s.inventory.placeItem(item,x,y))throw Error('Invalid ordinary-enemy fixture');
+            }
+            s.inventory.updatePowerGrid();
+            s.run.playerHp=id==='rat-gnaw'?70:100;
+            const enemy=s.run.enemies.find(enemy=>enemy.kind===(id==='rat-gnaw'?'rat':'scorpion'));
+            // Isolate this real encounter so world WAIT after victory has no unrelated contacts.
+            s.run.enemies=[enemy];
+            s.run.beginEncounter(enemy.id);
+            s.backpackView=true;s.applyLayout();
         } else if (id === 'scrap-brute') {
             await freshRun(fixedSeed);
             s.run.loadSector(1);

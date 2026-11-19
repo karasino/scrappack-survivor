@@ -14,6 +14,7 @@ const snapshot = `({seed:s.run.seed,rng:s.run.rngState,mode:s.run.mode,world:s.r
     size:[s.inventory.width,s.inventory.height],hp:s.run.playerHp,enemy:s.combatEngine.enemyHp,
     enemyDamage:s.combatEngine.enemyBaseDamage,turn:s.completedTurns,
     intent:s.combatEngine.enemyIntent,tactics:s.combatEngine.enemyTactics,
+    poison:s.run.playerPoisonTurns,cooldown:s.combatEngine.abilityCooldown,
     items:s.inventory.items.map(i=>({id:i.id,definition:i.definitionId,x:i.gridX,y:i.gridY,
         q:i.quarterTurns,charge:i.charge,selected:i.isSelectedForTurn})),
     ground:s.run.allGroundItems().map(i=>i.id),materials:s.run.materials})`;
@@ -172,6 +173,28 @@ for (const renderer of ['webgl','canvas']) {
         assert.equal(code,0,`${renderer}/scrap-brute launch ${repeat+1}`);await assertClean(resources);
     }
     console.log(`PASS ${renderer}/scrap-brute: exact fixture repeatability and defensive input`);
+}
+
+for(const renderer of ['webgl','canvas']) for(const id of ['rat-gnaw','scorpion-poison']) {
+    let initial,resources;
+    for(let repeat=0;repeat<2;repeat++) {
+        const code=await runScenario({id,renderer},{headless:true,onReady:async api=>{
+            resources=api;const input=await controls(api),state=await api.evaluate(snapshot),rat=id==='rat-gnaw';
+            assert.deepEqual([state.seed,state.rng,state.mode,state.hp,state.enemy,state.enemyDamage,state.world,state.size,state.poison,state.cooldown],
+                [170117,170117,'combat',rat?70:100,rat?12:24,rat?5:8,0,[4,4],0,0]);
+            assert.equal(state.intent.type,'strike');
+            assert.deepEqual(state.items.map(i=>[i.definition,i.x,i.y,i.q,i.selected]),rat?[
+                ['dagger',0,0,0,true],['combat_bra',1,0,0,true],['weak_battery',0,1,0,false],['weak_battery',3,3,0,false],['medkit',1,1,0,false],['medkit',2,1,0,false]
+            ]:[['dagger',0,0,0,true],['makeshift_vest',2,0,0,true],['weak_battery',2,2,0,false],['medkit',0,3,0,false],['medkit',1,3,0,false]]);
+            if(repeat)assert.deepEqual(state,initial,'new launch restores ordinary-enemy fixture');else initial=state;
+            await input.button('s.braceButton.rect');await input.button('s.braceButton.rect');
+            assert.deepEqual(await api.evaluate('[s.run.playerHp,s.run.playerPoisonTurns,s.combatEngine.abilityCooldown,s.lastTurnLog.batteryChargeDrained]'),rat?[70,0,3,1]:[100,3,3,0]);
+            if(!rat){await input.button('s.healButton.rect');assert.deepEqual(await api.evaluate('[s.run.playerHp,s.run.playerPoisonTurns,s.lastTurnLog.poisonCured]'),[100,0,true]);}
+            api.stop();
+        }});
+        assert.equal(code,0,`${renderer}/${id} launch ${repeat+1}`);await assertClean(resources);
+    }
+    console.log(`PASS ${renderer}/${id}: exact fixture repeatability and ability input`);
 }
 
 // Expected failures use the same diagnostic writer as every browser suite.

@@ -118,19 +118,19 @@ test('full backpack crafts onto bench and continuation discards leftover output'
 test('medkits enforce HP and ownership limits in exploration and workshop', () => {
     const run=authoredRun(7),engine=new ExplorationEngine(run),item=kit(run);
     const before=materialSnapshot(run);
-    assert.deepEqual(run.useMedkit(item.id),0,'full HP healing rejected');
+    assert.deepEqual(run.useMedkit(item.id).accepted,false,'full HP healing rejected');
     assert.ok(run.inventory.items.includes(item),'full HP retains medkit');
     assert.deepEqual(materialSnapshot(run),before,'full HP refusal free');
     run.enemies=[];run.playerHp=92;
-    assert.deepEqual(run.useMedkit(item.id),8,'healing capped at maximum');
+    assert.deepEqual(run.useMedkit(item.id).healingRestored,8,'healing capped at maximum');
     assert.deepEqual([run.playerHp,run.worldTurn,run.inventory.items.includes(item)],[100,1,false],'exploration heal spends item and one world turn');
     const second=put(run,'medkit');run.playerHp=40;run.putOnGround(second);
-    assert.deepEqual(run.useMedkit(second.id),0,'ground medkit cannot be used');
+    assert.deepEqual(run.useMedkit(second.id).accepted,false,'ground medkit cannot be used');
     assert.deepEqual(run.playerHp,40,'wrong owner does not heal');
     workshop(run);
     assert.ok(!run.looseLoot().some(loot=>loot.id===second.id),'old sector medkit is not on workshop bench');
     const workshopMed=put(run,'medkit'),turn=run.worldTurn;
-    assert.deepEqual(run.useMedkit(workshopMed.id),25,'workshop medkit heals');
+    assert.deepEqual(run.useMedkit(workshopMed.id).healingRestored,25,'workshop medkit heals');
     assert.deepEqual([run.playerHp,run.worldTurn],[65,turn],'workshop healing is free in world time');
     assert.ok(!engine.applyAction({type:'wait'}).accepted,'workshop freezes world actions');
 });

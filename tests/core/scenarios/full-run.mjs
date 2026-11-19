@@ -144,7 +144,7 @@ export function runFullCraftingRun({ generated = false } = {}) {
         assert.ok(item && run.workshopItems.includes(item), 'craft onto real bench');
         return item;
     };
-    assert.ok(run.useMedkit() > 0, 'use starting medkit in workshop'); healingActions++;
+    assert.ok(run.useMedkit().healingRestored > 0, 'use starting medkit in workshop'); healingActions++;
     const arc = craft(arcRecipe.id);
     assert.equal(arc.definitionId, 'arc_baton');
     const batteries = [run.inventory.items.find(i=>i.type==='battery'), craft('weak_battery'), craft('weak_battery')];

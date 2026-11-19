@@ -11,7 +11,7 @@ export type ExplorationAction =
 
 export interface ExplorationEvent {
     type: 'hero-moved' | 'enemy-moved' | 'waited' | 'loot-opened' |
-        'combat-started' | 'sector-entered' | 'run-completed' | 'workshop-entered' | 'healed' | 'station-used' | 'blueprint-opened';
+        'combat-started' | 'sector-entered' | 'run-completed' | 'workshop-entered' | 'healed' | 'station-used' | 'blueprint-opened' | 'poison-damage' | 'defeated';
     message?: string;
     enemyId?: string;
     pointId?: string;
@@ -20,6 +20,8 @@ export interface ExplorationEvent {
     to?: WorldPosition;
     sectorIndex?: number;
     healingRestored?: number;
+    poisonCured?: boolean;
+    poisonDamage?: number;
 }
 
 export interface ExplorationActionResult {
@@ -68,6 +70,7 @@ export class ExplorationEngine {
             state.worldTurn++;
             const enemy = state.enemies.find(candidate => this.sameCell(candidate, target));
             if (enemy) {
+                if (!this.resolvePoison(events)) return { accepted: true, events };
                 this.refreshChasing();
                 this.startEncounter(enemy, events, 'player');
                 return { accepted: true, events };
@@ -99,10 +102,11 @@ export class ExplorationEngine {
                 message: `Searched ${point.name}: ${itemIds.length} supplies found.`
             });
         } else if (action.type === 'heal') {
-            const healingRestored = state.consumeMedkit(action.itemId);
-            if (healingRestored === 0) return rejected;
+            const healing = state.consumeMedkit(action.itemId);
+            if (!healing.accepted) return rejected;
             state.worldTurn++;
-            events.push({ type: 'healed', healingRestored, message: `Medkit restored ${healingRestored} HP.` });
+            events.push({ type: 'healed', healingRestored: healing.healingRestored, poisonCured: healing.poisonCured,
+                message: `Medkit restored ${healing.healingRestored} HP.${healing.poisonCured ? ' POISON CURED.' : ''}` });
         } else if (action.type === 'heal-station') {
             const station = state.aidStations.find(candidate => !candidate.used && this.sameCell(candidate, state.hero));
             if (!station || state.playerHp <= 0 || state.playerHp >= state.playerMaxHp) return rejected;
@@ -119,10 +123,21 @@ export class ExplorationEngine {
             return rejected;
         }
 
+        if (!this.resolvePoison(events)) return { accepted: true, events };
         this.moveEnemies(events);
         this.refreshChasing();
         if (openedCacheId && state.playerHp > 0) state.pendingBlueprintCacheId = openedCacheId;
         return { accepted: true, events };
+    }
+
+    private resolvePoison(events: ExplorationEvent[]): boolean {
+        const damage = this.state.tickWorldPoison();
+        if (damage > 0) events.push({ type: 'poison-damage', poisonDamage: damage, message: `POISON: -${damage} HP.` });
+        if (this.state.playerHp <= 0) {
+            events.push({ type: 'defeated', message: 'DEFEAT: poison.' });
+            return false;
+        }
+        return true;
     }
 
     /** Дальность до проходимых клеток: стены учитываются, участники не перекрывают обзор. */

@@ -67,7 +67,7 @@ test('close/reopen is free, pending blocks commands, stale learning is atomic, w
     const offers=JSON.stringify(run.blueprintCaches),rng=run.rngState,cache=open(run);
     assert.equal(run.worldTurn,1);const before=snapshot(run);
     for(const action of [{type:'wait'},{type:'move',dx:1,dy:0},{type:'search'},{type:'heal',itemId:run.findMedkit().id}])assert.equal(new ExplorationEngine(run).applyAction(action).accepted,false);
-    assert.equal(run.useMedkit(),0);assert.equal(run.dropMaterial('metal'),false);assert.equal(run.enterWorkshop(),false);
+    assert.equal(run.useMedkit().accepted,false);assert.equal(run.dropMaterial('metal'),false);assert.equal(run.enterWorkshop(),false);
     assert.equal(run.chooseBlueprint(cache.id,'stale'),false);assert.equal(snapshot(run),before);
     assert.ok(run.closeBlueprintChoice());assert.equal(run.activeBlueprintChoice,null);
     open(run);assert.equal(run.worldTurn,1);assert.equal(run.rngState,rng);
@@ -120,7 +120,7 @@ const fight=(wv,av,{hp=50,enemyHp=50,enemyDamage=10,base='dagger',armor='combat_
     const before=JSON.stringify([pack.items,engine.playerHp,engine.enemyHp]);const preview=engine.previewAction(action);
     assert.equal(JSON.stringify([pack.items,engine.playerHp,engine.enemyHp]),before,'pure combat preview');
     const log=engine.processAction(action);
-    const {plan,playerHpAfter,enemyHpAfter,...expected}=preview;assert.deepEqual(log,expected);
+    const {plan,playerHpAfter,enemyHpAfter,poisonTurnsAfter,...expected}=preview;assert.deepEqual(log,expected);
     assert.deepEqual([engine.playerHp,engine.enemyHp],[playerHpAfter,enemyHpAfter]);return {log,engine,pack};
 };
 test('flat traits combine once, Guarded works without armor, floors and cross-item cancellation',()=>{
