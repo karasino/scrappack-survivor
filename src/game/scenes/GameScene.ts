@@ -7,7 +7,7 @@ import type { ExplorationAction } from '../core/ExplorationEngine';
 import { ExplorationMapView } from '../ui/ExplorationMapView';
 import { ItemVisual } from '../ui/ItemVisual';
 import { CombatEngine } from '../core/CombatEngine';
-import type { CombatTurnLog } from '../core/CombatEngine';
+import type { CombatAction, CombatTurnLog } from '../core/CombatEngine';
 import { ItemTooltip } from '../ui/ItemTooltip';
 import { buildItemTooltipContent } from '../ui/ItemTooltipContent';
 import { canUsePoweredEffect, previewPoweredEffect } from '../core/EnergyPlan';
@@ -41,6 +41,10 @@ export class GameScene extends Phaser.Scene {
     public workshopView!: WorkshopView;
     public runOverlay!: RunOverlayView;
     public healButton!: ViewButton;
+    public braceButton!: ViewButton;
+    public braceHint!: Phaser.GameObjects.Text;
+    public enemyIntentText!: Phaser.GameObjects.Text;
+    public enemyTacticsText!: Phaser.GameObjects.Text;
     public materialPanel!: Phaser.GameObjects.Rectangle;
     public takeMaterialButton!: ViewButton;
     public groundMaterialText!: Phaser.GameObjects.Text;
@@ -232,6 +236,7 @@ export class GameScene extends Phaser.Scene {
         this.blueprintChoice?.destroy();
         this.runOverlay?.destroy();
         this.healButton?.destroy();
+        this.braceButton?.destroy();
         this.takeMaterialButton?.destroy();
         this.hideTooltip();
         for (const visual of this.visualItemsMap.values()) {
@@ -420,7 +425,16 @@ export class GameScene extends Phaser.Scene {
         this.healButton = new ViewButton(this, 'HEAL +25 (1)', () => this.performHeal()).place(24, 312, 152, 36);
         this.healHint = this.addLabel(24, 352, '', 13).setWordWrapWidth(152, true).setMaxLines(2).setLineSpacing(3)
             .setColor(cssColor(UITheme.colors.secondaryText));
+        const brace = UITheme.combat.brace;
+        this.braceButton = new ViewButton(this, 'BRACE', () => this.resolveCombatAction('brace')).place(brace.x, brace.y, brace.width, brace.height);
+        this.braceHint = this.addLabel(brace.x, brace.hintY, '', 12).setWordWrapWidth(brace.width, true).setMaxLines(2).setLineSpacing(3)
+            .setColor(cssColor(UITheme.colors.secondaryText));
         this.uiSection = 'backpack';
+        this.enemyIntentText = this.addLabel(UITheme.ground.x, UITheme.ground.y, '', 14)
+            .setWordWrapWidth(UITheme.ground.width, true).setLineSpacing(5);
+        this.enemyTacticsText = this.addLabel(UITheme.ground.x, UITheme.combat.tacticsY, '', 12)
+            .setWordWrapWidth(UITheme.ground.width, true).setLineSpacing(6)
+            .setColor(cssColor(UITheme.colors.secondaryText));
         this.groundMaterialText = this.addLabel(UITheme.ground.x + 12, UITheme.ground.y + 10, '', 16)
             .setWordWrapWidth(UITheme.ground.width - 24, true).setLineSpacing(8);
         this.takeMaterialButton = new ViewButton(this, 'TAKE', () => this.collectGroundMaterial())
@@ -516,7 +530,7 @@ export class GameScene extends Phaser.Scene {
         if (!this.canHeal()) return;
         const kit = this.medkits()[0];
         this.hideTooltip();
-        if (this.run.mode === 'combat') this.resolveCombatAction(kit.id);
+        if (this.run.mode === 'combat') this.resolveCombatAction('heal', kit.id);
         else if (this.run.mode === 'exploration') this.performWorldAction({ type: 'heal', itemId: kit.id }, true);
         else {
             const restored = this.run.useMedkit(kit.id);
@@ -614,7 +628,7 @@ export class GameScene extends Phaser.Scene {
         if (this.materialPanel?.input) this.materialPanel.input.enabled = !this.hasOverlay() && !this.activeDrag;
         this.healButton?.setText(`HEAL +25 (${this.medkits().length})`).setEnabled(this.canHeal());
         this.healHint?.setText(this.run.playerHp >= this.run.playerMaxHp ? 'Health is full.' : !this.medkits().length ? 'Craft a Medkit.'
-            : this.run.mode === 'combat' ? 'Uses a combat turn.\nEnemy attacks.' : this.run.mode === 'workshop' ? 'Safe use. No turn.' : 'Uses one world turn.');
+            : this.run.mode === 'combat' ? `Uses a combat turn.\nEnemy: ${engine?.enemyIntent?.type.toUpperCase() ?? '—'}.` : this.run.mode === 'workshop' ? 'Safe use. No turn.' : 'Uses one world turn.');
 
         this.syncVisualItems();
         const { weapons, armors, valid } = this.getSelection();
@@ -626,12 +640,17 @@ export class GameScene extends Phaser.Scene {
         else if (this.run.mode !== 'combat') hint = this.run.mode === 'workshop' ? 'PREPARE YOUR BACKPACK' : status;
         else if (this.selectionError) hint = this.selectionError;
         else if (!valid || weapons.length > 1 || armors.length > 1) hint = 'INVALID SELECTION';
-        else if (!weapons.length) hint = 'SELECT A WEAPON';
         else {
-            const preview = engine!.previewAction({ type: 'attack', weaponId: weapons[0].id, armorId: armors[0]?.id ?? null });
-            hint = `DAMAGE ${preview.damageDealt} · SHIELD ${preview.shieldGenerated}\nHEAL ${preview.vampiricHealing} · RECOIL ${preview.recoilDamage} · HIT ${preview.damageTaken}`;
+            const action: CombatAction = { type: 'attack', weaponId: weapons[0]?.id ?? null, armorId: armors[0]?.id ?? null };
+            const availability = engine!.actionAvailability(action);
+            if (!availability.available) hint = availability.reason ?? 'Unavailable.';
+            else {
+                const preview = engine!.previewAction(action);
+                hint = `${preview.isUnarmed ? 'UNARMED' : 'DAMAGE'} ${preview.damageDealt} · SHIELD ${preview.shieldGenerated}\nHEAL ${preview.vampiricHealing} · RECOIL ${preview.recoilDamage} · HIT ${preview.damageTaken}`;
+            }
         }
         this.hintText.setText(hint);
+        this.refreshBrace(showPack);
         this.endTurnLabel.setText(this.isRunFinished() || this.hasCombatError ? 'NEW RUN' : 'END TURN');
         this.refreshConsumerPowerVisuals();
         this.refreshButton();
@@ -639,6 +658,7 @@ export class GameScene extends Phaser.Scene {
         const groundContext = buildGroundPanelContent(this.run);
         this.groundTitle?.setText(groundContext.title);
         this.groundStatus?.setText(groundContext.status);
+        this.refreshEnemyIntent(showPack);
         this.mapView?.setVisible(this.run.mode !== 'workshop' && (!this.compact || !this.backpackView));
         this.mapView?.refresh(this.run, this.exploration, this.hoveredEnemyId,
             !this.activeDrag && !this.isProcessingTurn && !this.hasCombatError && !this.hasOverlay());
@@ -692,7 +712,46 @@ export class GameScene extends Phaser.Scene {
             return false;
         }
         const { weapons, armors, valid } = this.getSelection();
-        return valid && weapons.length === 1 && armors.length <= 1;
+        return valid && weapons.length <= 1 && armors.length <= 1 && !!this.combatEngine?.actionAvailability({
+            type: 'attack', weaponId: weapons[0]?.id ?? null, armorId: armors[0]?.id ?? null
+        }).available;
+    }
+
+    private refreshBrace(showPack: boolean): void {
+        const visible = showPack && this.run.mode === 'combat';
+        this.braceButton?.setVisible(visible);
+        this.braceHint?.setVisible(visible);
+        if (!visible || !this.combatEngine) return;
+        const { armors, weapons, valid } = this.getSelection();
+        const action: CombatAction = { type: 'brace', armorId: armors[0]?.id ?? null };
+        const availability = this.combatEngine.actionAvailability(action);
+        const selectionValid = valid && armors.length <= 1 && weapons.length <= 1;
+        const enabled = selectionValid && availability.available && this.canChangeInventory()
+            && !this.activeDrag && this.time.now >= this.nextAllowedTurnAt;
+        this.braceButton.setEnabled(enabled);
+        if (this.activeDrag) this.braceHint.setText('Finish moving item.');
+        else if (!selectionValid) this.braceHint.setText('Invalid selection.');
+        else if (!availability.available) this.braceHint.setText(availability.reason ?? 'Unavailable.');
+        else {
+            const preview = this.combatEngine.previewAction(action);
+            this.braceHint.setText(`SHIELD ${preview.shieldGenerated} · HIT ${preview.damageTaken}\nNo attack. Armor only.`);
+        }
+    }
+
+    private refreshEnemyIntent(showPack: boolean): void {
+        const intent = this.run.mode === 'combat' ? this.combatEngine?.enemyIntent : null;
+        const visible = showPack && !!intent;
+        this.enemyIntentText?.setVisible(visible);
+        this.enemyTacticsText?.setVisible(visible);
+        if (!intent) return;
+        this.groundTitle.setText('NEXT ACTION');
+        this.groundStatus.setText(`${intent.type.toUpperCase()} · ${intent.type === 'repair'
+            ? `Heal up to ${intent.healing} HP` : `${intent.damage} damage`}`);
+        this.enemyIntentText.setText(`${intent.reason}\n${intent.type === 'wind-up'
+            ? 'SLAM follows next turn.' : 'Resolves after your action.'}`);
+        const tactics = this.combatEngine?.enemyTactics;
+        this.enemyTacticsText.setText(tactics
+            ? `REPAIR uses left: ${tactics.repairUsesRemaining}\nREPAIR cooldown: ${tactics.repairCooldown}\nSLAM cooldown: ${tactics.slamCooldown}` : '');
     }
 
     private refreshButton(): void {
@@ -789,14 +848,24 @@ export class GameScene extends Phaser.Scene {
         this.resolveCombatAction();
     }
 
-    private resolveCombatAction(consumableId?: string): void {
+    private resolveCombatAction(type: 'attack' | 'heal' | 'brace' = 'attack', consumableId?: string): void {
         if (this.run.mode !== 'combat' || !this.canChangeInventory() || this.activeDrag || this.time.now < this.nextAllowedTurnAt) {
             return;
         }
         const { weapons, armors, valid } = this.getSelection();
-        if (!valid || (!consumableId && weapons.length !== 1) || armors.length > 1) {
-            this.selectionError = 'SELECT ONE WEAPON\nAND AT MOST ONE ARMOR';
-            this.appendMessage('Turn cancelled: select exactly one placed weapon and at most one placed armor.');
+        if (!valid || weapons.length > 1 || armors.length > 1) {
+            this.selectionError = 'SELECT AT MOST ONE\nWEAPON AND ONE ARMOR';
+            this.appendMessage('Turn cancelled: select at most one placed weapon and one placed armor.');
+            this.updateCombatUI();
+            return;
+        }
+        const action: CombatAction = type === 'heal'
+            ? { type, consumableId: consumableId!, armorId: armors[0]?.id ?? null }
+            : type === 'brace' ? { type, armorId: armors[0]?.id ?? null }
+                : { type, weaponId: weapons[0]?.id ?? null, armorId: armors[0]?.id ?? null };
+        const availability = this.combatEngine!.actionAvailability(action);
+        if (!availability.available) {
+            this.selectionError = availability.reason;
             this.updateCombatUI();
             return;
         }
@@ -806,22 +875,23 @@ export class GameScene extends Phaser.Scene {
         this.updateCombatUI();
         const batteryIds = this.inventory.items.filter(item => item.type === 'battery').map(item => item.id);
         try {
-            const log = consumableId
-                ? this.run.processCombatAction({ type: 'heal', consumableId, armorId: armors[0]?.id ?? null })
-                : this.run.processCombatTurn(weapons[0].id, armors[0]?.id ?? null);
+            const log = this.run.processCombatAction(action);
             this.lastTurnLog = log;
             this.completedTurns++;
             this.nextAllowedTurnAt = this.time.now + 250;
             const removedNames = this.synchronizeTurnVisuals(batteryIds);
             this.appendMessage(log.actionType === 'heal'
                 ? `TURN ${String(this.completedTurns).padStart(2, '0')}: ${log.consumableUsedName} — HEALED ${log.healingRestored} HP`
-                : `TURN ${String(this.completedTurns).padStart(2, '0')}: ${log.weaponUsedName} — DAMAGE ${log.damageDealt}`);
+                : log.actionType === 'brace' ? `TURN ${String(this.completedTurns).padStart(2, '0')}: BRACE`
+                    : `TURN ${String(this.completedTurns).padStart(2, '0')}: ${log.isUnarmed ? 'UNARMED' : log.weaponUsedName} — DAMAGE ${log.damageDealt}`);
             this.appendMessage(`ARMOR: ${log.armorUsedName ?? 'NONE'} — SHIELD ${log.shieldGenerated}`);
             if (log.vampiricHealing || log.recoilDamage) this.appendMessage([
                 log.vampiricHealing ? `VAMPIRIC: +${log.vampiricHealing} HP` : '',
                 log.recoilDamage ? `PAINFUL: -${log.recoilDamage} HP` : ''
             ].filter(Boolean).join(' · '));
             this.appendMessage(`HIT TAKEN: ${log.damageTaken}`);
+            if (this.combatEngine?.enemyTactics) this.appendMessage(`ENEMY ${log.enemyAction.type.toUpperCase()}: ${log.enemyAction.type === 'repair'
+                ? `HEALED ${log.enemyHealingRestored} HP` : `${log.enemyAction.damage} DAMAGE`}`);
             for (const name of removedNames) {
                 this.appendMessage(`BATTERY DEPLETED: ${name}`);
             }
@@ -1013,7 +1083,10 @@ export class GameScene extends Phaser.Scene {
         this.groundCounter.setText(`${ground.length ? this.groundPage + 1 : 0} / ${ground.length}`);
         const locked = this.run.mode === 'combat' || this.run.mode === 'boss-reward';
         this.groundEmptyText.setText(locked ? 'GROUND LOCKED\nDURING COMBAT' : 'NOTHING HERE')
-            .setVisible(showPack && (!ground.length || locked));
+            .setVisible(showPack && this.run.mode !== 'combat' && (!ground.length || locked));
+        this.groundCounter.setVisible(showGround);
+        this.previousGround.setVisible(showGround);
+        this.nextGround.setVisible(showGround);
         const materialVisible = showGround && entry?.kind === 'material';
         this.groundMaterialText.setVisible(materialVisible);
         this.takeMaterialButton.setVisible(materialVisible);

@@ -45,8 +45,10 @@ export async function runVisualPrototypeChecks({ evaluate, read, check, mouse, c
         'loot definitions are stable');
     await check("s.visualItemsMap.get('scrap_battery_01').itemModel.definitionId",'rusty_battery','starter identity');
     await check("s.visualItemsMap.get('scrap_battery_01').image",null,'Rusty Battery keeps its own placeholder');
+    await evaluate('s.isProcessingTurn=true;s.updateCombatUI();s.finishButtonTransition()');
     await check('[s.endTurnButton.alpha,s.endTurnButton.fillColor,s.endTurnLabel.style.color]',
         [1,0x30353d,'#8b929c'],'disabled controls remain legible');
+    await evaluate('s.isProcessingTurn=false;s.updateCombatUI()');
     await check('[s.logText.style.fontSize,s.logText.lineSpacing,s.logText.style.fontFamily]',
         ['13px',2,'Arial, sans-serif'],'log typography');
 

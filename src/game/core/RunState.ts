@@ -471,12 +471,13 @@ export class RunState {
         this.activeEnemyId = enemy.id;
         this.victoryPosition = initiator === 'player' ? { x: enemy.x, y: enemy.y } : null;
         this.combatEngine = new CombatEngine(
-            this.inventory, this.playerMaxHp, enemy.maxHp, enemy.damage, enemy.name, this.playerHp
+            this.inventory, this.playerMaxHp, enemy.maxHp, enemy.damage, enemy.name, this.playerHp,
+            enemy.kind === 'brute' ? 'scrap-brute' : 'basic'
         );
         this.mode = 'combat';
     }
 
-    public processCombatTurn(weaponId: string, armorId: string | null): CombatTurnLog {
+    public processCombatTurn(weaponId: string | null, armorId: string | null): CombatTurnLog {
         return this.processCombatAction({ type: 'attack', weaponId, armorId });
     }
 

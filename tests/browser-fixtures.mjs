@@ -1,6 +1,6 @@
 // Development/test-only preparation. This function is serialized into the Vite page;
 // production code never imports this module or installs its globals.
-export const scenarioIds = ['transformer-chain', 'combat-heal'];
+export const scenarioIds = ['transformer-chain', 'combat-heal', 'scrap-brute'];
 export const scenarioSeed = 170117;
 
 async function installBrowserFixtures(fixedSeed) {
@@ -105,6 +105,25 @@ async function installBrowserFixtures(fixedSeed) {
             seedTransformerChain();
         } else if (id === 'combat-heal') {
             await prepareCombatHeal();
+        } else if (id === 'scrap-brute') {
+            await freshRun(fixedSeed);
+            s.run.loadSector(1);
+            for (const visual of [...s.visualItemsMap.values()]) visual.destroy();
+            for (const item of [...s.inventory.items]) s.inventory.removeItem(item.id);
+            for (const [definitionId,x,y] of [
+                ['arc_baton',1,0],['weak_battery',0,0],['weak_battery',0,1],
+                ['makeshift_vest',2,0],['weak_battery',2,2],
+                ['dagger',0,2],['medkit',0,3],['medkit',1,3]
+            ]) {
+                const item = s.run.createItem(definitionId);
+                item.isSelectedForTurn = item.type === 'armor' || definitionId === 'arc_baton';
+                if (!s.inventory.placeItem(item,x,y)) throw Error('Invalid scrap-brute fixture');
+            }
+            s.inventory.updatePowerGrid();
+            s.run.playerHp = 70;
+            s.run.beginEncounter(s.run.enemies.find(enemy => enemy.kind === 'brute').id);
+            s.backpackView = true;
+            s.applyLayout();
         } else throw Error('Unknown scenario: '+id);
         s.appendMessage('FIXTURE: '+id+' | SEED: '+fixedSeed);
         s.updateCombatUI();

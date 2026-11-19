@@ -128,7 +128,7 @@ export async function runCraftingChecks({ evaluate, read, check, mouse, click, s
 
     await evaluate('freshElectricRun()');
     await evaluate("s.run.playerHp=50;const weapon=s.inventory.items.find(i=>i.type==='weapon');s.inventory.removeItem(weapon.id);s.run.beginEncounter(s.run.enemies.find(e=>e.kind==='scorpion').id);s.combatEngine=s.run.combatEngine;s.backpackView=true;s.updateCombatUI()");
-    await check('[s.canEndTurn(),s.healButton.enabled]',[false,true],'HEAL remains available without a weapon');
+    await check('[s.canEndTurn(),s.healButton.enabled]',[true,true],'UNARMED and HEAL remain available without a weapon');
     await button('s.healButton');
     await check('[s.run.playerHp,s.combatEngine.enemyHp,s.inventory.items.filter(i=>i.definitionId==="medkit").length]',[75,24,0],'weaponless UI healing consumes medkit and preserves enemy HP');
 

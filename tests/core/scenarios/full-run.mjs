@@ -14,6 +14,7 @@ export function runFullCraftingRun({ generated = false } = {}) {
     let fights = 0;
     let steps = 0;
     let healingActions = 0;
+    let braceActions = 0;
     let sectorOneBudget;
     const firstStep = target => {
         const queue = [{ position: run.hero, first: null }];
@@ -68,7 +69,11 @@ export function runFullCraftingRun({ generated = false } = {}) {
             const weapon = run.inventory.items.find(item => item.type === 'weapon' && item.isSelectedForTurn);
             const armor = run.inventory.items.find(item => item.type === 'armor');
             const medkit = run.inventory.items.find(item => item.definitionId === 'medkit');
-            if (enemy.isBoss && run.playerHp <= 35 && medkit) {
+            if (enemy.isBoss && run.combatEngine.enemyIntent?.type === 'slam') {
+                const log = run.processCombatAction({ type: 'brace', armorId: armor?.id ?? null });
+                assert.ok(log.actionType === 'brace' && log.damageDealt === 0, 'brace answers an announced boss slam');
+                braceActions++;
+            } else if (enemy.isBoss && run.playerHp <= 35 && medkit) {
                 const log = run.processCombatAction({ type: 'heal', consumableId: medkit.id, armorId: armor?.id ?? null });
                 assert.ok(log.healingRestored > 0 && log.damageDealt === 0, 'real battle medkit replaces attack');
                 healingActions++;
@@ -164,6 +169,7 @@ export function runFullCraftingRun({ generated = false } = {}) {
     clearSector();
     assert.ok(healingActions > 0, 'route uses actual limited healing');
     assert.deepEqual(run.bossVictoryCount, 1, 'exactly one actual boss reward');
+    assert.ok(braceActions > 0, 'earned loadout uses brace against the tactical boss');
     travel(run.map.exit);
     assert.ok(engine.applyAction({ type: 'exit' }).accepted && run.mode === 'workshop' && run.workshopFinal,
         'second exit enters final real workshop');
@@ -173,6 +179,6 @@ export function runFullCraftingRun({ generated = false } = {}) {
     assert.notEqual(finalItem.id, arc.id);
     assert.ok(run.inventory.items.includes(finalItem), 'boss components produce a usable final item');
     assert.ok(run.continueFromWorkshop() && run.mode === 'complete', 'finish demo after final crafting');
-    return { seed: run.seed, hp: run.playerHp, fights, steps, healingActions, sectorOneBudget,
+    return { seed: run.seed, hp: run.playerHp, fights, steps, healingActions, braceActions, sectorOneBudget,
         size: [run.inventory.width, run.inventory.height], finalItem: finalItem.definitionId };
 }

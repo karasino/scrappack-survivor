@@ -16,6 +16,7 @@ import { runVisualPrototypeChecks } from './visual-prototype-checks.mjs';
 import { runExplorationChecks } from './exploration-checks.mjs';
 import { runCraftingChecks } from './crafting-checks.mjs';
 import { runItemFeedbackChecks } from './ui-feedback-checks.mjs';
+import { runTacticalCombatChecks } from './tactical-combat-checks.mjs';
 
 const origin = 'http://127.0.0.1:4175';
 let profile;
@@ -119,6 +120,12 @@ try {
         const frame = () => delay(35);
         const restart = () => evaluate('reset()');
 
+        if (process.argv.includes('--tactical-only')) {
+            await group('tactical boss and defensive actions', () => runTacticalCombatChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+            await cdp('Target.closeTarget',{targetId});
+            continue;
+        }
+
         if (process.argv.includes('--slow-tooltip-only')) {
             await group('slow tooltip refresh', () => runSlowTooltipChecks({ evaluate,read,check,mouse,restart,send,renderer,group }));
             await cdp('Target.closeTarget',{targetId});
@@ -150,9 +157,9 @@ try {
         await check(`({ hp:s.playerHpText.text, enemy:s.enemyHpText.text, status:s.statusText.text,
             hint:s.hintText.text, ready:s.canEndTurn(), inventory:s.inventory.items.length,
             button:[s.endTurnButton.x,s.endTurnButton.y,s.endTurnButton.width,s.endTurnButton.height] })`,
-        { hp:'100 / 100',enemy:'50 / 50',status:'TURN 01',hint:'SELECT A WEAPON',ready:false,inventory:0,button:[550,520,226,48] }, 'initial state');
+        { hp:'100 / 100',enemy:'50 / 50',status:'TURN 01',hint:'UNARMED 2 · SHIELD 0\nHEAL 0 · RECOIL 0 · HIT 12',ready:true,inventory:0,button:[550,520,226,48] }, 'initial unarmed state');
         await click(663, 544);
-        await check('s.completedTurns', 0, 'disabled turn');
+        await check('[s.completedTurns,s.combatEngine.enemyHp,s.run.playerHp]', [1,48,88], 'unarmed turn without equipment');
         await check("s.children.getAll().some(o=>o.type==='Text'&&o.text==='SCAVENGE SCRAP')", false, 'test scavenge removed');
         await check(`Array.from(s.visualItemsMap.values()).every(v => v.rect.x >= uiTheme.ground.x && v.rect.y >= uiTheme.ground.y
             && v.rect.x+v.rect.width <= uiTheme.ground.x+uiTheme.ground.width && v.rect.y+v.rect.height <= uiTheme.ground.y+uiTheme.ground.height)`, true, 'ground bounds');
@@ -315,6 +322,7 @@ try {
         await restart();
 
         await group('tooltips and connection arrows', () => runTask4Checks({ evaluate,read,check,mouse,click,restart,send,renderer }));
+        await group('tactical boss and defensive actions', () => runTacticalCombatChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));
         await group('slow tooltip refresh', () => runSlowTooltipChecks({ evaluate,read,check,mouse,restart,send,renderer,group }));
         await group('energy allocation and transformer chain', () => runEnergyPlanChecks({ evaluate,read,check,mouse,click,restart,renderer }));
         await group('power shortage reasons', () => runPowerReasonChecks({ evaluate,read,check,mouse,click,restart,send,renderer }));

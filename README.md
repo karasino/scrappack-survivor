@@ -37,6 +37,7 @@ npm run dev
 ```bash
 npm run scenario -- transformer-chain
 npm run scenario -- combat-heal --renderer canvas
+npm run scenario -- scrap-brute
 ```
 
 Команда открывает готовую управляемую фикстуру в отдельном видимом окне Chrome. Доступны `webgl` (по умолчанию) и `canvas`; `npm run scenario -- --help` показывает синтаксис. В терминале выводятся ID, renderer, seed и `READY`. Это подготовленные тестовые состояния, а не результат прохождения маршрута. Дальше работают обычные мышь/клавиатура. Исходные расстановки и ожидаемые действия описаны [в verification](docs/verification.md#воспроизводимые-ситуации).

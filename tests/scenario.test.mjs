@@ -4,10 +4,11 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { parseScenarioArgs, runScenario } from '../scripts/scenario.mjs';
 import { spawnCaptured, stopOwnedProcess } from './browser-harness.mjs';
 
-test('scenario CLI selects two explicit fixtures and validates renderer/options', () => {
+test('scenario CLI selects three explicit fixtures and validates renderer/options', () => {
     assert.deepEqual(parseScenarioArgs(['transformer-chain']), { id: 'transformer-chain', renderer: 'webgl' });
     assert.deepEqual(parseScenarioArgs(['combat-heal', '--renderer', 'canvas']), { id: 'combat-heal', renderer: 'canvas' });
     assert.deepEqual(parseScenarioArgs(['combat-heal', '--renderer', 'webgl']), { id: 'combat-heal', renderer: 'webgl' });
+    assert.deepEqual(parseScenarioArgs(['scrap-brute']), { id: 'scrap-brute', renderer: 'webgl' });
     assert.deepEqual(parseScenarioArgs(['--help']), { help: true });
     for (const args of [[], ['unknown'], ['combat-heal', '--renderer', 'auto'], ['combat-heal', '--renderer'],
         ['combat-heal', '--extra', 'canvas'], ['combat-heal', '--renderer', 'canvas', '--extra']]) {

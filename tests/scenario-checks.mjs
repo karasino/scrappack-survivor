@@ -13,6 +13,7 @@ import { spawnCaptured, awaitReady, stopOwnedProcess } from './browser-harness.m
 const snapshot = `({seed:s.run.seed,rng:s.run.rngState,mode:s.run.mode,world:s.run.worldTurn,
     size:[s.inventory.width,s.inventory.height],hp:s.run.playerHp,enemy:s.combatEngine.enemyHp,
     enemyDamage:s.combatEngine.enemyBaseDamage,turn:s.completedTurns,
+    intent:s.combatEngine.enemyIntent,tactics:s.combatEngine.enemyTactics,
     items:s.inventory.items.map(i=>({id:i.id,definition:i.definitionId,x:i.gridX,y:i.gridY,
         q:i.quarterTurns,charge:i.charge,selected:i.isSelectedForTurn})),
     ground:s.run.allGroundItems().map(i=>i.id),materials:s.run.materials})`;
@@ -144,6 +145,33 @@ for (const renderer of ['webgl', 'canvas']) for (const id of ['transformer-chain
         await assertClean(resources);
     }
     console.log(`PASS ${renderer}/${id}: fixture repeatability, input, cancellation and lifecycle`);
+}
+
+for (const renderer of ['webgl','canvas']) {
+    let initial,resources;
+    for(let repeat=0;repeat<2;repeat++) {
+        const code=await runScenario({id:'scrap-brute',renderer},{headless:true,onReady:async api=>{
+            resources=api;const input=await controls(api),state=await api.evaluate(snapshot);
+            assert.deepEqual([state.seed,state.rng,state.mode,state.hp,state.enemy,state.enemyDamage,state.world,state.size],
+                [170117,170117,'combat',70,66,14,0,[4,4]]);
+            assert.equal(state.intent.type,'strike');
+            assert.deepEqual(state.tactics,{repairUsesRemaining:2,repairCooldown:0,slamCooldown:0});
+            assert.deepEqual(state.items.map(i=>[i.definition,i.x,i.y,i.q,i.selected]),[
+                ['arc_baton',1,0,0,true],['weak_battery',0,0,0,false],['weak_battery',0,1,0,false],
+                ['makeshift_vest',2,0,0,true],['weak_battery',2,2,0,false],['dagger',0,2,0,false],
+                ['medkit',0,3,0,false],['medkit',1,3,0,false]
+            ]);
+            if(repeat)assert.deepEqual(state,initial,'new launch restores exact tactical fixture');else initial=state;
+            await input.button('s.endTurnButton');
+            await input.button('s.endTurnButton');
+            assert.equal(await api.evaluate('s.combatEngine.enemyIntent.type'),'slam');
+            await input.button('s.braceButton.rect');
+            assert.deepEqual(await api.evaluate('[s.run.playerHp,s.combatEngine.enemyHp,s.lastTurnLog.shieldGenerated,s.lastTurnLog.damageTaken]'),[58,42,16,6]);
+            api.stop();
+        }});
+        assert.equal(code,0,`${renderer}/scrap-brute launch ${repeat+1}`);await assertClean(resources);
+    }
+    console.log(`PASS ${renderer}/scrap-brute: exact fixture repeatability and defensive input`);
 }
 
 // Expected failures use the same diagnostic writer as every browser suite.
