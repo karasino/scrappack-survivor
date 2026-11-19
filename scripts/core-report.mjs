@@ -28,7 +28,7 @@ export function createCoreReportGuard(files, { cwd = process.cwd() } = {}) {
         finish() {
             const errors = [];
             let executed = 0;
-            if (selected.size === 0) errors.push('No explicit core test files were selected.');
+            if (selected.size === 0) errors.push('No explicit test files were selected.');
             for (const file of selected) {
                 const label = relative(cwd, file) || file;
                 const summary = summaries.get(file);
@@ -40,7 +40,7 @@ export function createCoreReportGuard(files, { cwd = process.cwd() } = {}) {
                 if (count === null) errors.push(`${label}: invalid internal node:test summary.`);
                 else {
                     executed += count;
-                    if (count === 0) errors.push(`${label}: no executed core scenarios (empty, skipped, TODO or cancelled tests).`);
+                    if (count === 0) errors.push(`${label}: no executed test scenarios (empty, skipped, TODO or cancelled tests).`);
                 }
                 if (summary.success === false) errors.push(`${label}: node:test reported a failed run; see the original test diagnostics.`);
             }

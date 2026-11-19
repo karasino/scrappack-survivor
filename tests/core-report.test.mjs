@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
-import { mkdtemp, writeFile, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, writeFile, copyFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,7 +46,7 @@ test('core report excludes empty suites, skip, TODO and cancelled cases from pro
     for(const event of [summary('a.mjs',0,{suites:1}),summary('a.mjs',2,{skipped:2}),
         summary('a.mjs',2,{todo:2}),summary('a.mjs',2,{cancelled:2})]){
         const result=validate(['a.mjs'],[event,summary(undefined,2)]);
-        assert.equal(result.ok,false);assert.equal(result.executed,0);assert.match(result.errors.join('\n'),/no executed core scenarios/);
+        assert.equal(result.ok,false);assert.equal(result.executed,0);assert.match(result.errors.join('\n'),/no executed test scenarios/);
     }
     const mixed=validate(['a.mjs'],[summary('a.mjs',4,{skipped:1,todo:1,suites:2}),summary(undefined,4)]);
     assert.equal(mixed.ok,true);assert.equal(mixed.executed,2);
@@ -75,30 +75,61 @@ function cli(files,{guard=true}={}) {
     return runNode(args);
 }
 
-function runNode(args,{extraEnv={}}={}) {
+function runNode(args,options) {
+    return runCommand(process.execPath,args,options);
+}
+
+function runCommand(command,args,{extraEnv={},cwd=root}={}) {
     const env={...process.env,...extraEnv};delete env.NODE_TEST_CONTEXT;
     return new Promise((resolveResult,reject)=>{
-        execFile(process.execPath,args,{cwd:root,env,timeout:5000,maxBuffer:1_000_000},(error,stdout,stderr)=>{
+        execFile(command,args,{cwd,env,timeout:5000,maxBuffer:1_000_000},(error,stdout,stderr)=>{
             if(error&&(typeof error.code!=='number'||error.killed))return reject(error);
             resolveResult({code:error?.code??0,stdout,stderr});
         });
     });
 }
 
-test('aggregate check stops at test:core when the real reporter rejects a native green file',async t=>{
+for(const step of ['test:core','test:harness'])test(`aggregate check stops at ${step} when the real reporter rejects a native green file`,async t=>{
     const {directory,file}=await fixture(t,'','npm-fixture.mjs');
     const log=join(directory,'steps.jsonl');
     await writeFile(file,`import {appendFileSync} from 'node:fs'; import {spawnSync} from 'node:child_process';
         const step=process.argv.at(-1);appendFileSync(${JSON.stringify(log)},JSON.stringify(step)+'\\n');
-        if(step==='test:core'){
+        if(step===${JSON.stringify(step)}){
             const result=spawnSync(process.execPath,${JSON.stringify(['--test','--test-reporter=spec','--test-reporter='+reporter,'--test-reporter-destination=stdout','--test-reporter-destination=stderr',emptyFixture])},{stdio:'inherit'});
             process.exit(result.status??1);
         }`);
     const result=await runNode([join(root,'scripts/check.mjs')],{extraEnv:{npm_execpath:file}});
     assert.equal(result.code,1);assert.match(result.stdout,/pass 1/);
-    assert.match(result.stderr,/\[core-report\] FAIL/);assert.match(result.stderr,/Stopped at test:core \(exit 1\)/);
-    const {readFile}=await import('node:fs/promises');
-    assert.deepEqual((await readFile(log,'utf8')).trim().split('\n').map(line=>JSON.parse(line)),['doctor','check:docs','test:core']);
+    assert.match(result.stderr,/\[core-report\] FAIL/);assert.ok(result.stderr.includes(`Stopped at ${step} (exit 1)`));
+    const expected=['doctor','check:docs','test:core',...(step==='test:harness'?['test:harness']:[])];
+    assert.deepEqual((await readFile(log,'utf8')).trim().split('\n').map(line=>JSON.parse(line)),expected);
+});
+
+test('test:harness npm command verifies every selected file and rejects a native green empty file',async t=>{
+    const {scripts}=JSON.parse(await readFile(join(root,'package.json'),'utf8'));
+    const command=scripts['test:harness'];
+    const files=command.split(/\s+/).filter(arg=>arg.startsWith('tests/'));
+    assert.ok(files.length>0,'the harness command must explicitly select test files');
+    const {directory}=await fixture(t,'');
+    await writeFile(join(directory,'package.json'),JSON.stringify({type:'module',scripts:{'test:harness':command}}));
+    await mkdir(join(directory,'scripts'),{recursive:true});
+    await copyFile(reporter,join(directory,'scripts/core-report.mjs'));
+    for(const [index,file] of files.entries()){
+        await mkdir(dirname(join(directory,file)),{recursive:true});
+        await writeFile(join(directory,file),`import {test} from 'node:test'; test('harness file ${index}',()=>{});\n`);
+    }
+    const npm=process.env.npm_execpath;
+    const run=()=>runCommand(npm?process.execPath:'npm',npm?[npm,'run','test:harness']:['run','test:harness'],{
+        cwd:directory,extraEnv:{npm_config_cache:join(directory,'npm-cache')}
+    });
+    const complete=await run();assert.equal(complete.code,0,complete.stdout+complete.stderr);
+    assert.ok(complete.stderr.includes(`Verified ${files.length} executed scenarios across ${files.length} files.`));
+    for(const index of files.keys())assert.ok(complete.stdout.includes(`harness file ${index}`));
+    const empty=files[Math.floor(files.length/2)];await writeFile(join(directory,empty),'// No node:test registrations.\n');
+    const incomplete=await run();assert.equal(incomplete.code,1,incomplete.stdout+incomplete.stderr);
+    assert.match(incomplete.stdout,new RegExp(`pass ${files.length}\\b`));
+    assert.ok(incomplete.stderr.includes(`[core-report] FAIL ${empty}: no internal node:test summary`));
+    assert.doesNotMatch(incomplete.stderr,/Verified/);
 });
 
 test('core reporter CLI makes the native green empty-file result fail with the exact filename',async()=>{
@@ -127,7 +158,7 @@ test('core reporter CLI requires a real executed case rather than only suites, s
     for(const source of ["import {describe} from 'node:test'; describe('empty suite',()=>{});",
         "import {test} from 'node:test'; test.skip('skip only',()=>{}); test.todo('todo only');"]){
         const {file}=await fixture(t,source);const result=await cli([file]);
-        assert.equal(result.code,1);assert.match(result.stderr,/no executed core scenarios/);
+        assert.equal(result.code,1);assert.match(result.stderr,/no executed test scenarios/);
     }
     const {file}=await fixture(t,"import {test} from 'node:test'; test('real',()=>{}); test.skip('skip',()=>{}); test.todo('expected failure',()=>{throw Error('TODO failure')});");
     const result=await cli([file]);assert.equal(result.code,0,result.stderr+result.stdout);
