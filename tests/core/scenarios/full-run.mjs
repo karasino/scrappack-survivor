@@ -2,9 +2,11 @@
 import assert from 'node:assert/strict';
 import { RunState } from '../../../src/game/core/RunState.ts';
 import { ExplorationEngine } from '../../../src/game/core/ExplorationEngine.ts';
+import { installAuthoredSectors } from '../../sector-fixtures.mjs';
 
-export function runFullCraftingRun() {
+export function runFullCraftingRun({ generated = false } = {}) {
     const run = new RunState(123);
+    if (!generated) installAuthoredSectors(run);
     const engine = new ExplorationEngine(run);
     const directions = [{ x: 0, y: -1 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: -1, y: 0 }];
     const key = position => position.x + ',' + position.y;

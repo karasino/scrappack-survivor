@@ -8,7 +8,7 @@ const fixture=(seed=123)=>{
     const run=electricLoadout(new RunState(seed));
     const templates=Object.fromEntries(run.enemies.map(e=>[e.kind,{...e}]));
     run.map={rows:Array(8).fill('........'),width:8,height:8,exit:{x:7,y:0}};
-    run.hero={x:0,y:7};run.enemies=[];run.lootPoints=[];
+    run.hero={x:0,y:7};run.enemies=[];run.lootPoints=[];run.blueprintCaches=[];run.aidStations=[];
     const add=(id,kind,x,y,config={})=>{
         const enemy={...templates[kind],id,x,y,isChasing:false,...config};run.enemies.push(enemy);return enemy;
     };
@@ -16,7 +16,7 @@ const fixture=(seed=123)=>{
 };
 const selected=run=>[run.inventory.items.find(i=>i.type==='weapon'),run.inventory.items.find(i=>i.type==='armor')];
 
-test('both sectors have authored dimensions and reachable exits and loot', () => {
+test('both generated sectors have expected dimensions and reachable exits and loot', () => {
     for(let sector=0;sector<2;sector++){
         const run=new RunState(42);run.loadSector(sector);
         assert.deepEqual([run.map.width,run.map.height,run.enemies.length,run.lootPoints.length],[8,8,sector===0?3:4,2],'manual sector dimensions '+sector);

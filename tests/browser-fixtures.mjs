@@ -9,6 +9,7 @@ async function installBrowserFixtures(fixedSeed) {
     const { LootTable } = await import('/src/game/core/LootTable.ts');
     const { CombatEngine } = await import('/src/game/core/CombatEngine.ts');
     const { UITheme } = await import('/src/game/ui/UITheme.ts');
+    const { installAuthoredSectors, authoredCachePositions } = await import('/tests/sector-fixtures.mjs');
     globalThis.uiTheme=UITheme;
     for (let i = 0; i < 100 && !game.scene.isActive('GameScene'); i++) {
         await new Promise(r => setTimeout(r, 20));
@@ -40,6 +41,11 @@ async function installBrowserFixtures(fixedSeed) {
         if (s.run === previous || !s.endTurnButton?.input || s.endTurnButton.scene!==s) throw Error('Scene did not finish restarting');
         s.backpackView=true;s.applyLayout();
     };
+    globalThis.freshAuthoredRun = async runSeed => {
+        await freshRun(runSeed);
+        installAuthoredSectors(s.run);
+        s.updateCombatUI();
+    };
     globalThis.reset = async (runSeed, { ground = true, encounter } = {}) => {
         await freshRun(runSeed);
         // Legacy combat fixtures exercise the complete 6 × 6 network.
@@ -63,7 +69,7 @@ async function installBrowserFixtures(fixedSeed) {
         {type:'weapon',id:'gun',x:2,y:0}
     ]);
     globalThis.freshElectricRun = async () => {
-        await freshRun(fixedSeed);
+        await freshAuthoredRun(fixedSeed);
         for (const visual of [...s.visualItemsMap.values()]) visual.destroy();
         for (const item of [...s.inventory.items]) s.inventory.removeItem(item.id);
         for (const [definitionId,x,y] of [['heavy_battery',0,0],['laser_pistol',2,0],['weak_battery',0,2],['makeshift_vest',1,2],['medkit',0,1]]) {
@@ -85,7 +91,7 @@ async function installBrowserFixtures(fixedSeed) {
         const {ExplorationEngine}=await import('/src/game/core/ExplorationEngine.ts');
         const old={hero:s.run.hero,enemies:s.run.enemies,caches:s.run.blueprintCaches};
         let caches;
-        for(let seed=0;seed<1000;seed++) {const c=generateBlueprintCaches(seed,0);if(c.some(p=>p.offers.some(r=>r.outputDefinitionId===base))){caches=c;break}}
+        for(let seed=0;seed<1000;seed++) {const c=generateBlueprintCaches(seed,0,authoredCachePositions);if(c.some(p=>p.offers.some(r=>r.outputDefinitionId===base))){caches=c;break}}
         const cache=caches.find(p=>p.offers.some(r=>r.outputDefinitionId===base));
         const recipe=cache.offers.find(r=>r.outputDefinitionId===base);
         s.run.blueprintCaches=caches;s.run.enemies=[];s.run.hero={x:cache.x,y:cache.y};

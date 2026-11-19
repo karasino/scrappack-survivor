@@ -21,6 +21,17 @@ export interface SectorDefinition {
     rows: readonly string[];
     loot: Readonly<Record<string, readonly LootSpec[]>>;
     boss?: boolean;
+    blueprintCaches: readonly WorldPosition[];
+    aidStations: readonly WorldPosition[];
+}
+
+export interface SectorProfile {
+    wallCount: number;
+    enemyKinds: readonly Exclude<EnemyKind, 'brute'>[];
+    loot: SectorDefinition['loot'];
+    boss?: boolean;
+    blueprintCacheCount: number;
+    aidStationCount: number;
 }
 
 export const ENEMY_DEFINITIONS: Readonly<Record<EnemyKind, EnemyDefinition>> = {
@@ -42,18 +53,12 @@ export const ENEMY_DEFINITIONS: Readonly<Record<EnemyKind, EnemyDefinition>> = {
     }
 };
 
-export const SECTOR_DEFINITIONS: readonly SectorDefinition[] = [
+export const SECTOR_PROFILES: readonly SectorProfile[] = [
     {
-        rows: [
-            '.......X',
-            '..##r...',
-            '.....#2.',
-            '.##..#..',
-            '......c.',
-            '.1r.##..',
-            '..#.....',
-            'S.......'
-        ],
+        wallCount: 9,
+        enemyKinds: ['rat', 'scorpion', 'rat'],
+        blueprintCacheCount: 2,
+        aidStationCount: 0,
         loot: {
             '1': [{ kind: 'material', material: 'metal', amount: 2 },
                 { kind: 'material', material: 'fabric', amount: 2 }],
@@ -66,16 +71,10 @@ export const SECTOR_DEFINITIONS: readonly SectorDefinition[] = [
     },
     {
         boss: true,
-        rows: [
-            '..#....X',
-            '..#c.#..',
-            '.....#..',
-            '.##...c.',
-            '.1..##..',
-            '..#r....',
-            '..#..#2.',
-            'S.......'
-        ],
+        wallCount: 11,
+        enemyKinds: ['scorpion', 'scorpion', 'rat'],
+        blueprintCacheCount: 0,
+        aidStationCount: 1,
         loot: {
             '1': [{ kind: 'material', material: 'metal', amount: 2 },
                 { kind: 'material', material: 'fabric', amount: 3 }],

@@ -20,7 +20,7 @@
 
 ## GitHub Actions
 
-[CI](../.github/workflows/ci.yml) содержит два независимых задания на `ubuntu-24.04`, Node берётся из `.nvmrc`. В каждом свой checkout и `npm ci`; npm cache хранит загрузки по lockfile. `Core, harness and build` исполняет check:docs → test:core → test:harness → build без установки Chrome и вызова doctor. `Browser UI (WebGL and Canvas)` устанавливает библиотеки Ubuntu и Chrome for Testing **157.0.8103.78** linux64, экспортирует `CHROME_BIN`, затем исполняет doctor → test:scenarios → test:combat-ui → test:exploration → test:crafting. Это последовательные команды на одном runner; seed 123 остаётся только в core, отдельного test:visual/check в CI нет.
+[CI](../.github/workflows/ci.yml) содержит два независимых задания на `ubuntu-24.04`, Node берётся из `.nvmrc`. В каждом свой checkout и `npm ci`; npm cache хранит загрузки по lockfile. `Core, harness and build` исполняет check:docs → test:core → test:harness → build без установки Chrome и вызова doctor. `Browser UI (WebGL and Canvas)` устанавливает библиотеки Ubuntu и Chrome for Testing **157.0.8103.78** linux64, экспортирует `CHROME_BIN`, затем исполняет doctor → test:scenarios → test:combat-ui → test:exploration → test:crafting. Это последовательные команды на одном runner; полные маршруты seed 123 остаются только в core, отдельного test:visual/check в CI нет.
 
 Триггеры: pull_request, push в main, workflow_dispatch. Устаревшие запуски отменяются в пределах события и ветки/номера PR; разные PR не смешиваются. Права — только contents: read; checkout не сохраняет credentials. Actions закреплены SHA официальных релизов [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1), [setup-node v7.1.0](https://github.com/actions/setup-node/releases/tag/v7.1.0), [upload-artifact v7.0.2](https://github.com/actions/upload-artifact/releases/tag/v7.0.2). Реальные Node/npm/Chrome версии видны в логах. Код возврата каждой команды сохраняется; после ошибки последующие обычные шаги пропускаются. Пределы jobs: 15 минут для правил, 25 для браузера; установка и каждый browser-набор ограничены пятью минутами, upload — тремя. Внутренний предел browser runner — 240 секунд с ограниченной диагностикой/очисткой, что оставляет время до остановки шага.
 
@@ -32,11 +32,11 @@
 
 ## Что уже проверяется
 
-Runner [combat-ui.mjs](../tests/combat-ui.mjs) запускает настоящий Vite и Chrome через CDP. Во всех игровых наборах исполняются Canvas и WebGL. `test:core` отдельно запускает реальные `.ts`-модули core через tsx в Node 24 со стандартными `node:test`/`node:assert/strict`: шесть явно перечисленных `.test.mjs` файлов, таймаут 15 с на тест. Набор не вызывает doctor, не загружает Phaser/UI, не запускает Chrome/Vite и не открывает портов. Некорректный CHROME_BIN и занятый 4175 не препятствуют проверке правил. tsx не проверяет типы; `build` по-прежнему выполняет `tsc && vite build`. Production test hooks не вводятся; временные фикстуры размещаются тестом.
+Runner [combat-ui.mjs](../tests/combat-ui.mjs) запускает настоящий Vite и Chrome через CDP. Во всех игровых наборах исполняются Canvas и WebGL. `test:core` отдельно запускает реальные `.ts`-модули core через tsx в Node 24 со стандартными `node:test`/`node:assert/strict`: семь явно перечисленных `.test.mjs` файлов, таймаут 15 с на тест. Набор не вызывает doctor, не загружает Phaser/UI, не запускает Chrome/Vite и не открывает портов. Некорректный CHROME_BIN и занятый 4175 не препятствуют проверке правил. tsx не проверяет типы; `build` по-прежнему выполняет `tsc && vite build`. Production test hooks не вводятся; временные фикстуры размещаются тестом.
 
-Полный маршрут [full-run.mjs](../tests/core/scenarios/full-run.mjs) использует RunState/ExplorationEngine с seed 123 и допустимые команды без телепортаций/добавления ресурсов. Это core-сценарий, не полный проход мышью. Его вызывает только [run.test.mjs](../tests/core/run.test.mjs), один раз за test:core и полный check; UI отдельно проверяется настоящим вводом.
+Полный маршрут [full-run.mjs](../tests/core/scenarios/full-run.mjs) использует RunState/ExplorationEngine с seed 123 и допустимые команды без телепортаций/добавления ресурсов. Это core-сценарий, не полный проход мышью. Его вызывает только [run.test.mjs](../tests/core/run.test.mjs): один проход на прежней авторской фикстуре и один на обычных generated-картах за test:core и полный check. Это разные карты; UI отдельно проверяется настоящим вводом.
 
-Текущий результат этого маршрута: два сектора, семь боёв, 50 перемещений, два использования Medkit (мастерская и бой), 24 HP, рюкзак 5 × 4, повторно изготовленный Arc Baton в заключительной мастерской. Числа — ориентир текущего прототипа, не замена проверок поведения. Баланс и удобство оценивает пользователь.
+Текущий результат авторского маршрута: два сектора, семь боёв, 50 перемещений, два использования Medkit (мастерская и бой), 24 HP, рюкзак 5 × 4, повторно изготовленный Arc Baton в заключительной мастерской. Generated seed 123 даёт тот же итог, но 66 перемещений. Числа — ориентир текущего прототипа, не замена проверок поведения. Баланс и удобство оценивает пользователь.
 
 ### Карта перенесённых сценариев
 
@@ -59,7 +59,7 @@ Runner [combat-ui.mjs](../tests/combat-ui.mjs) запускает настоящ
 
 | Сценарии прежнего exploration core | Тест в [exploration.test.mjs](../tests/core/exploration.test.mjs) |
 | --- | --- |
-| Два сектора, размеры, достижимость | `both sectors have authored dimensions and reachable exits and loot` |
+| Два сектора, размеры, достижимость | `both generated sectors have expected dimensions and reachable exits and loot` |
 | Границы/диагональ/стена/неприменимое действие, drag и допустимый шаг | `invalid actions and drag preserve world state; cardinal movement spends one turn` |
 | Периоды и RNG блуждания | `idle periods schedule seeded wandering`; `blocked idle attempt consumes RNG without movement` |
 | BFS, завершение погони, равные пути, чистота обнаружения со стенами | `chase routes around walls without RNG and ends outside radius`; `equal chase paths prefer up before right`; `detection measures paths around walls and remains pure` |
@@ -86,7 +86,7 @@ Runner [combat-ui.mjs](../tests/combat-ui.mjs) запускает настоящ
 | Лечение до фазы контакта | `healing and aid station apply before monster contact` |
 | Исключение создания результата и компонент на столе | `craft output construction failure is atomic; bench components are unavailable` |
 | Оба инициатора победы над боссом, позиция/компоненты/расширение | `both boss encounter initiators preserve reward position and apply expansion once` |
-| Общий маршрут crafting-run-scenario, ранее два набора × два renderer | [run.test.mjs](../tests/core/run.test.mjs): `seed 123 completes two sectors with earned resources and deterministic final state`; все внутренние проверки [маршрута](../tests/core/scenarios/full-run.mjs) и итог сохранены |
+| Общий маршрут crafting-run-scenario, ранее два набора × два renderer | [run.test.mjs](../tests/core/run.test.mjs): `authored fixture seed 123 completes two sectors with earned resources and deterministic final state` и `generated seed 123 completes both sectors with earned resources and deterministic final state`; все внутренние проверки [маршрута](../tests/core/scenarios/full-run.mjs) и итог сохранены |
 
 `check:docs` проверяет локальные цели Markdown-ссылок, размер AGENTS/status, поля/разделы/статусы и размещение задач, соответствие active-task. Фрагменты заголовков и смысловая актуальность текста автоматически не подтверждаются. Архив исторической спецификации исключён из проверки старых ссылок, но ссылка на сам архив должна работать.
 
@@ -121,7 +121,7 @@ Runner ограничивает startup, каждую CDP-команду, общ
 
 Drag снимает выбор и извлекает предмет из сети: исчезновение усиления ожидаемо. До завершения переноса атака и лечение заблокированы. R вращает предмет; отказ у края GROUND, blur и resize восстанавливают исходное положение/ориентацию. После возврата оружие нужно выбрать заново. Обычный индикатор оборудования показывает план атаки; HEAL строит отдельный план только брони. Лечение тратит ход, а смертельный выстрел не отменяет ответ врага.
 
-`npm run test:scenarios` проверяет обе пары renderer/ID с настоящим Chrome и повторным запуском, исходный состав/координаты/выбор/заряд/HP/бой, обычный ввод, отмену с R, край панели, blur, compact/resize, нехватку заряда и отказ HEAL. Полный HP в бою проверяется отдельно управляемой фикстурой: один Medkit не позволяет достичь этой границы обычными действиями сценария. Набор также проверяет закрытие вкладки при незавершённом callback, двойной stop, занятый порт, отсутствие Chrome, startup timeout, ошибку с JSON/PNG и SIGINT; профиль удаляется, порт освобождается. Детальные assertions механик остаются в core и существующих UI-наборах; полный seed 123 не повторяется.
+`npm run test:scenarios` проверяет обе пары renderer/ID с настоящим Chrome и повторным запуском, исходный состав/координаты/выбор/заряд/HP/бой, обычный ввод, отмену с R, край панели, blur, compact/resize, нехватку заряда и отказ HEAL. Полный HP в бою проверяется отдельно управляемой фикстурой: один Medkit не позволяет достичь этой границы обычными действиями сценария. Набор также проверяет закрытие вкладки при незавершённом callback, двойной stop, занятый порт, отсутствие Chrome, startup timeout, ошибку с JSON/PNG и SIGINT; профиль удаляется, порт освобождается. Детальные assertions механик остаются в core и существующих UI-наборах; полные маршруты seed 123 не повторяются.
 
 ## Ручной чек-лист
 
@@ -136,8 +136,17 @@ Drag снимает выбор и извлекает предмет из сет�
 
 ## Вариативные чертежи
 
-В test:core включён [blueprints.test.mjs](../tests/core/blueprints.test.mjs): пулы и совместимость, 1000 seed, связанные тройки/повторы, независимый RNG, закрытие и устаревшие команды, отложенный выбор/поражение, знания/копии, свойства боя и HEAL, скидки путей/циклы/настройка батарей/дробные остатки. Полный seed 123 получает рецепты через оба тайника обычными командами, использует Arc Baton и заработанные ресурсы; результат: HP 24, 7 боёв, 50 шагов, 2 лечения, рюкзак 5×4, повторно изготовленный Arc Baton.
+В test:core включён [blueprints.test.mjs](../tests/core/blueprints.test.mjs): пулы и совместимость, 1000 seed, связанные тройки/повторы, независимый RNG, закрытие и устаревшие команды, отложенный выбор/поражение, знания/копии, свойства боя и HEAL, скидки путей/циклы/настройка батарей/дробные остатки. Оба core-маршрута seed 123 получают рецепты через оба тайника обычными командами, используют Arc Baton и заработанные ресурсы; результат: HP 24, 7 боёв, 50 шагов на авторской карте / 66 на generated, 2 лечения, рюкзак 5×4, повторно изготовленный Arc Baton.
 
 В test:crafting включён [blueprint-checks](../tests/blueprint-checks.mjs): настоящий E/CLOSE/Escape/LEARN, блокировки и повторы, Canvas/WebGL, четыре viewport, resize/blur, страницы/изготовление, отказ переноса и сохранение варианта. Снимки — artifacts/blueprints. Старые цепи и лечение подготовлены явными электрическими предметами; смена старта не меняет их назначение.
 
 Регрессия tooltip (18.11.2026) в том же blueprint-checks: настоящий hover изготовленного Arc Baton на BENCH (9 подписей), перенос без питания (10 с предупреждением), переход к Dagger и Weak Battery, очистка шкалы заряда, повторное использование пула и последующий клик/drag. Runtime.exceptionThrown собирается браузерным runner: исключение в Phaser Clock считается отказом набора.
+
+
+## Процедурные сектора
+
+В test:core включён [sectors.test.mjs](../tests/core/sectors.test.mjs): 1000 seed каждого сектора плюс 0x7fffffff/0x80000000/0xffffffff, повторяемость, разнообразие стен/расстановок, 9/11 стен, связность всего пола, свободные соседние старту клетки, прежний состав и награды, отсутствие наложений и безопасный старт по той же метрике обнаружения. Отдельно проверяются загрузка всех позиций в RunState, повторная загрузка, независимость от world RNG/посещений тайников/первого маршрута, атомарный отказ неизвестного сектора и независимость предложений от координат.
+
+[sector-fixtures](../tests/sector-fixtures.mjs) содержит прежние авторские карты и адаптер только тестового экземпляра RunState. Старые проверки явных координат используют freshAuthoredRun; freshRun и production всегда начинают обычный generated-забег. Фикстуры переиспользуют текущие награды и параметры врагов, не создавая вторую таблицу баланса. Полные core-маршруты на обеих картах проверяются отдельно; ни один из них не повторяется в браузере.
+
+В test:exploration включён [sector-checks](../tests/sector-checks.mjs): обычный generated seed 123, повторяемость и seed 124, видимые позиции/hover, настоящий клик и клавиши, граничный отказ, бой с END TURN, E/CLOSE/Escape/LEARN, SEARCH/TAKE, переход в WORKSHOP и CONTINUE с сохранением HP/предметов/заряда/знаний, одноразовая First Aid Station. В этом сценарии нет телепортаций, удаления врагов или выдачи ресурсов. Дополнительно проверяются четыре viewport, B, drag/R, отказ у края GROUND, resize и blur. Оба renderer; снимки в artifacts/sectors. Полный check включает новый файл через существующие core/exploration команды и CI без нового задания.

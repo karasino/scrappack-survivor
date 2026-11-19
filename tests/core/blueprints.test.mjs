@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RunState } from '../../src/game/core/RunState.ts';
+import { authoredRun } from './fixtures.mjs';
+import { authoredCachePositions } from '../sector-fixtures.mjs';
 import { ExplorationEngine } from '../../src/game/core/ExplorationEngine.ts';
 import { generateBlueprintCaches } from '../../src/game/core/BlueprintGenerator.ts';
 import { validVariant, variantPools, describeRecipe } from '../../src/game/core/ItemVariants.ts';
@@ -22,8 +23,8 @@ const snapshot=run=>JSON.stringify([run.playerHp,run.worldTurn,run.rngState,run.
 test('joint seeded offers preserve pools, grades, prices, sizes and exact uniqueness across 1000 seeds',()=>{
     const bases=new Set();let fine=0;
     for(let seed=0;seed<1000;seed++){
-        const caches=generateBlueprintCaches(seed,0), [a,b]=caches;
-        assert.deepEqual(caches,generateBlueprintCaches(seed,0));
+        const caches=generateBlueprintCaches(seed,0,authoredCachePositions), [a,b]=caches;
+        assert.deepEqual(caches,generateBlueprintCaches(seed,0,authoredCachePositions));
         assert.deepEqual(caches.map(c=>[c.x,c.y]),[[1,6],[6,3]]);
         assert.ok(['battle_axe','arc_baton'].includes(a.offers[0].outputDefinitionId));
         assert.equal(b.offers[2].outputDefinitionId,'weak_battery');
@@ -62,7 +63,7 @@ test('every compatible equipment/battery pair validates; opposite channels and p
 });
 
 test('close/reopen is free, pending blocks commands, stale learning is atomic, world RNG never rerolls',()=>{
-    const run=new RunState(13);run.enemies=[];run.playerHp=70;run.materials.metal=1;
+    const run=authoredRun(13);run.enemies=[];run.playerHp=70;run.materials.metal=1;
     const offers=JSON.stringify(run.blueprintCaches),rng=run.rngState,cache=open(run);
     assert.equal(run.worldTurn,1);const before=snapshot(run);
     for(const action of [{type:'wait'},{type:'move',dx:1,dy:0},{type:'search'},{type:'heal',itemId:run.findMedkit().id}])assert.equal(new ExplorationEngine(run).applyAction(action).accepted,false);
@@ -79,12 +80,12 @@ test('close/reopen is free, pending blocks commands, stale learning is atomic, w
 });
 
 test('visiting in either order gives the same offers; choice delayed until victory and cleared by defeat',()=>{
-    const a=new RunState(13),b=new RunState(13);a.enemies=[];b.enemies=[];
+    const a=authoredRun(13),b=authoredRun(13);a.enemies=[];b.enemies=[];
     open(a,0);a.chooseBlueprint(a.activeBlueprintChoice.id,a.activeBlueprintChoice.offers[0].id);open(a,1);
     open(b,1);b.closeBlueprintChoice();for(let n=0;n<10;n++)new ExplorationEngine(b).applyAction({type:'wait'});open(b,0);
     assert.deepEqual(a.blueprintCaches.map(c=>c.offers),b.blueprintCaches.map(c=>c.offers));
     for(const defeat of [false,true]){
-        const run=new RunState(4),rat=run.enemies.find(e=>e.kind==='rat');run.enemies=[rat];
+        const run=authoredRun(4),rat=run.enemies.find(e=>e.kind==='rat');run.enemies=[rat];
         Object.assign(rat,{x:1,y:5});run.hero={x:1,y:6};
         assert.ok(new ExplorationEngine(run).applyAction({type:'blueprint-cache'}).accepted);
         assert.equal(run.mode,'combat');assert.equal(run.activeBlueprintChoice,null);assert.ok(run.pendingBlueprintCacheId);
@@ -96,7 +97,7 @@ test('visiting in either order gives the same offers; choice delayed until victo
 });
 
 test('utility searches retain loot, learned knowledge survives sector, new runs reset; crafting copies independent',()=>{
-    const run=new RunState(7);run.enemies=[];
+    const run=authoredRun(7);run.enemies=[];
     for(const point of run.lootPoints){run.hero={x:point.x,y:point.y};assert.ok(new ExplorationEngine(run).applyAction({type:'search'}).accepted);assert.ok(run.looseLoot().length>0)}
     assert.ok(run.knownRecipes.some(r=>r.id==='copper_wire'));assert.ok(run.knownRecipes.some(r=>r.id==='step_up_transformer'));
     const cache=open(run),r=cache.offers[2];run.chooseBlueprint(cache.id,r.id);
@@ -109,7 +110,7 @@ test('utility searches retain loot, learned knowledge survives sector, new runs 
     const b=run.craftRecipe(r.id);assert.ok(b);assert.notEqual(a.id,b.id);assert.deepEqual(a.variant,b.variant);
     a.charge-=1;assert.notEqual(a.charge,b.charge);assert.notEqual(a.connectedBatteries,b.connectedBatteries);
     assert.ok(run.continueFromWorkshop());assert.deepEqual(run.blueprintCaches,[]);assert.ok(run.knownRecipes.some(k=>k.id===r.id));
-    assert.deepEqual(new RunState(7).knownRecipes.map(r=>r.id),['dagger','combat_bra','weak_battery','medkit']);
+    assert.deepEqual(authoredRun(7).knownRecipes.map(r=>r.id),['dagger','combat_bra','weak_battery','medkit']);
 });
 
 const fight=(wv,av,{hp=50,enemyHp=50,enemyDamage=10,base='dagger',armor='combat_bra'}={})=>{
@@ -221,7 +222,7 @@ test('all capacity and tuning strengths are fixed by grade and base',()=>{
 });
 
 test('lethal recoil resolves retaliation and defeat priority without reward',()=>{
-    const run=new RunState(19);for(const gear of [...run.inventory.items])run.inventory.removeItem(gear.id);
+    const run=authoredRun(19);for(const gear of [...run.inventory.items])run.inventory.removeItem(gear.id);
     const weapon=run.createItem('dagger',undefined,variant('dagger','guarded','painful'));
     place(run.inventory,weapon,0,0);run.playerHp=1;const enemy=run.enemies[0];run.beginEncounter(enemy.id);run.combatEngine.enemyHp=1;
     const log=run.processCombatTurn(weapon.id,null);

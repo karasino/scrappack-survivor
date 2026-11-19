@@ -3,6 +3,7 @@ import type { Recipe } from './Crafting';
 import { LootTable } from './LootTable';
 import { variantName, variantPools, validVariant } from './ItemVariants';
 import type { ItemVariant, TraitId } from './ItemVariants';
+import type { WorldPosition } from './SectorDefinitions';
 
 export interface BlueprintCache {
     readonly id: string; readonly x: number; readonly y: number;
@@ -11,8 +12,9 @@ export interface BlueprintCache {
     selectedRecipeId: string | null;
 }
 /** A separate RNG domain: never consumes the world's enemy movement stream. */
-export function generateBlueprintCaches(seed: number, sector: number): BlueprintCache[] {
+export function generateBlueprintCaches(seed: number, sector: number, positions: readonly WorldPosition[]): BlueprintCache[] {
     if (sector !== 0) return [];
+    if (positions.length !== 2) throw new RangeError('The first sector requires two blueprint cache positions.');
     let state = (seed ^ 0xb17e9a4d ^ Math.imul(sector + 1, 0x9e3779b9)) >>> 0;
     const random = () => { state = (Math.imul(1664525, state) + 1013904223) >>> 0; return state / 0x100000000; };
     const pick = <T>(values: readonly T[]): T => values[Math.floor(random() * values.length)];
@@ -41,7 +43,7 @@ export function generateBlueprintCaches(seed: number, sector: number): Blueprint
         [firstBattery === 'heavy_battery' ? 'laser_pistol' : pick(['dagger', 'battle_axe', 'arc_baton']), pick(armor), 'weak_battery']];
     return bases.map((group, index) => {
         const quality = random() < 0.7 ? 'standard' : 'fine';
-        return { id: `sector-${sector + 1}-blueprint-${index + 1}`, x: index === 0 ? 1 : 6, y: index === 0 ? 6 : 3,
+        return { id: `sector-${sector + 1}-blueprint-${index + 1}`, x: positions[index].x, y: positions[index].y,
             opened: false, selectedRecipeId: null,
             offers: Object.freeze(group.map((baseId, slot) => make(baseId, quality, `blueprint-${seed}-${sector}-${index}-${slot}`))) };
     });

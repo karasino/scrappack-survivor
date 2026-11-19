@@ -1,5 +1,8 @@
 import { generateBlueprintCaches } from '../../src/game/core/BlueprintGenerator.ts';
 import { ExplorationEngine } from '../../src/game/core/ExplorationEngine.ts';
+import { RunState } from '../../src/game/core/RunState.ts';
+import { installAuthoredSectors, authoredCachePositions } from '../sector-fixtures.mjs';
+export const authoredRun = seed => installAuthoredSectors(new RunState(seed));
 export function electricLoadout(run) {
     for(const item of [...run.inventory.items])run.inventory.removeItem(item.id);
     for(const [id,x,y] of [['heavy_battery',0,0],['laser_pistol',2,0],['weak_battery',0,2],['makeshift_vest',1,2],['medkit',0,1]]) {
@@ -13,7 +16,7 @@ export function learnBase(run, base) {
     const previous={hero:run.hero,mode:run.mode,enemies:run.enemies,caches:run.blueprintCaches};
     let caches;
     for(let seed=0;seed<1000;seed++) {
-        const candidate=generateBlueprintCaches(seed,0);
+        const candidate=generateBlueprintCaches(seed,0,authoredCachePositions);
         if(candidate.some(c=>c.offers.some(r=>r.outputDefinitionId===base))){caches=candidate;break}
     }
     if(!caches)throw Error('No fixture recipe '+base);

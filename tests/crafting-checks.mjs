@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 // Browser coverage retains actual Phaser input, crafting UI and both renderers.
 export async function runCraftingChecks({ evaluate, read, check, mouse, click, send, renderer }) {
     await runBlueprintChecks({ evaluate, read, check, mouse, click, send, renderer });
-    await evaluate('freshRun()');
+    await evaluate('freshAuthoredRun()');
     await send('Emulation.setDeviceMetricsOverride',{width:1366,height:650,deviceScaleFactor:1,mobile:false});
     await delay(100);await evaluate('s.applyLayout()');
     await check('[s.inventory.width,s.inventory.height,s.inventory.items.length]',[4,4,4],'crafting UI starts with restricted backpack and medkit');
@@ -109,14 +109,14 @@ export async function runCraftingChecks({ evaluate, read, check, mouse, click, s
     await check('[s.compact,s.backpackView]',[true,false],'minimum viewport retains compact workshop');
     await viewport(1280,620);await check('s.compact',false,'1280 viewport uses wide workshop');
 
-    await evaluate('freshRun()');await viewport(1366,650);
+    await evaluate('freshAuthoredRun()');await viewport(1366,650);
     await evaluate("s.run.loadSector(1);s.run.enemies=[];s.run.hero={x:0,y:4};s.run.playerHp=80;s.updateCombatUI()");
     await check('s.mapView.actionButton.label.text','USE STATION','aid station exposes its contextual action');
     await button('s.mapView.actionButton');
     await check('[s.run.playerHp,s.run.worldTurn,s.run.aidStations[0].used]',[100,1,true],'station button heals once and spends world turn');
     await capture('wide-aid-station');
 
-    await evaluate('freshRun()');await viewport(1366,650);
+    await evaluate('freshAuthoredRun()');await viewport(1366,650);
     await evaluate('prepareCombatHeal()');
     const healingState=await read('({enemy:s.combatEngine.enemyHp,high:s.inventory.items.find(i=>i.type==="battery"&&i.voltageType==="high").charge,low:s.inventory.items.find(i=>i.type==="battery"&&i.voltageType==="low").charge,world:s.run.worldTurn})');
     await button('s.healButton');
@@ -132,7 +132,7 @@ export async function runCraftingChecks({ evaluate, read, check, mouse, click, s
     await button('s.healButton');
     await check('[s.run.playerHp,s.combatEngine.enemyHp,s.inventory.items.filter(i=>i.definitionId==="medkit").length]',[75,24,0],'weaponless UI healing consumes medkit and preserves enemy HP');
 
-    await evaluate('freshRun()');await viewport(800,600);
+    await evaluate('freshAuthoredRun()');await viewport(800,600);
     await evaluate("s.run.loadSector(1);const boss=s.run.enemies.find(e=>e.isBoss);s.run.hero={x:6,y:0};s.run.beginEncounter(boss.id,'player');s.combatEngine=s.run.combatEngine;s.backpackView=true;s.combatEngine.enemyHp=1;s.updateCombatUI()");
     await click(663,544);
     await until("s.run.mode==='boss-reward'&&s.runOverlay.kind==='reward'",'boss victory opens reward overlay');

@@ -3,9 +3,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { runLocationFeedbackChecks } from './ui-feedback-checks.mjs';
+import { runGeneratedSectorChecks } from './sector-checks.mjs';
 
 // Browser coverage retains real input, rendering and the UI connection to RunState.
 export async function runExplorationChecks({ evaluate, read, check, mouse, click, send, renderer }) {
+    await runGeneratedSectorChecks({evaluate,read,check,mouse,click,send,renderer});
     const waitFor = async (condition,label) => {
         for(let i=0;i<100;i++){if(await read(condition))return;await delay(25);}
         console.error(await read(`({mode:s.run.mode,selection:s.inventory.items.filter(i=>i.isSelectedForTurn).map(i=>i.id),hp:[s.combatEngine?.playerHp,s.combatEngine?.enemyHp],error:s.hasCombatError,messages:s.messages,button:{visible:s.endTurnButton.visible,input:s.endTurnButton.input.enabled},pointer:[s.input.activePointer.x,s.input.activePointer.y]})`));
@@ -29,7 +31,7 @@ export async function runExplorationChecks({ evaluate, read, check, mouse, click
         const shot=await send('Page.captureScreenshot',{format:'png',clip});
         await writeFile(join(directory,renderer+'-'+name+'.png'),Buffer.from(shot.data,'base64'));
     };
-    await evaluate('freshRun()');
+    await evaluate('freshAuthoredRun()');
     await viewport(1366,650);
     await check('[s.compact,s.scale.width,s.scale.height,s.run.mode,s.inventory.items.length]',[false,1248,640,'exploration',4],'wide new run');
     await check("s.children.getAll().some(o=>o.type==='Text'&&o.text==='SCAVENGE SCRAP')",false,'scavenge is absent');

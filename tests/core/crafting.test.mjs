@@ -1,10 +1,9 @@
-import { electricLoadout, learnBase } from './fixtures.mjs';
+import { electricLoadout, learnBase, authoredRun } from './fixtures.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { RunState } from '../../src/game/core/RunState.ts';
 import { ExplorationEngine } from '../../src/game/core/ExplorationEngine.ts';
 import { RECIPES, MATERIAL_CAPACITY } from '../../src/game/core/Crafting.ts';
-import { ENEMY_DEFINITIONS, SECTOR_DEFINITIONS } from '../../src/game/core/SectorDefinitions.ts';
+import { ENEMY_DEFINITIONS, SECTOR_PROFILES } from '../../src/game/core/SectorDefinitions.ts';
 import { prepareEnergyPlan } from '../../src/game/core/EnergyPlan.ts';
 
 const materialSnapshot=run=>JSON.stringify([run.materials,run.worldTurn,run.rngState]);
@@ -30,7 +29,7 @@ const workshop=(run)=>{run.hero={...run.map.exit};const engine=new ExplorationEn
     assert.ok(engine.applyAction({type:'exit'}).accepted,'enter workshop via actual exit');return engine};
 
 test('starting medkit, empty materials, recipe catalog and raw loot definitions', () => {
-    const initial=new RunState(123);
+    const initial=authoredRun(123);
 
     assert.deepEqual([initial.inventory.width,initial.inventory.height,initial.inventory.items.length],[4,4,4],'restricted start plus medkit');
     assert.deepEqual([kit(initial).gridX,kit(initial).gridY,kit(initial).healingAmount],[1,1,25],'starting medkit');
@@ -39,12 +38,12 @@ test('starting medkit, empty materials, recipe catalog and raw loot definitions'
     assert.deepEqual(RECIPES.length,12,'catalogue includes all bases');
     for(const [kind,definition]of Object.entries(ENEMY_DEFINITIONS))
         assert.ok(definition.reward.every(loot=>loot.kind==='material'||['power_core','precision_mechanism'].includes(loot.definitionId)),'enemies only drop raw loot '+kind);
-    for(let sector=0;sector<SECTOR_DEFINITIONS.length;sector++)
-        assert.ok(Object.values(SECTOR_DEFINITIONS[sector].loot).flat().every(loot=>loot.kind==='material'||['power_core','precision_mechanism'].includes(loot.definitionId)),'caches only drop raw loot '+sector);
+    for(let sector=0;sector<SECTOR_PROFILES.length;sector++)
+        assert.ok(Object.values(SECTOR_PROFILES[sector].loot).flat().every(loot=>loot.kind==='material'||['power_core','precision_mechanism'].includes(loot.definitionId)),'caches only drop raw loot '+sector);
 });
 
 test('partial material pickup retains remainder; limits and rejected combat transfers are atomic', () => {
-    const run=new RunState(321);run.materials.metal=23;const material=pack(run,'partial','electronics',5);
+    const run=authoredRun(321);run.materials.metal=23;const material=pack(run,'partial','electronics',5);
     const freeze=[run.worldTurn,run.rngState];
     assert.deepEqual(run.collectMaterials(material.id),1,'partial material pickup');
     assert.deepEqual([run.materialUsed,material.amount],[24,4],'partial remainder retained');
@@ -67,7 +66,7 @@ test('all recipes debit exact costs and inventory components in stable ID order'
         step_up_transformer:[2,3,0],laser_pistol:[5,4,0],makeshift_vest:[3,0,4],medkit:[0,1,2]};
     for(const recipe of RECIPES){
         assert.deepEqual([recipe.materials.metal,recipe.materials.electronics,recipe.materials.fabric],expected[recipe.id],'recipe costs '+recipe.id);
-        const run=new RunState(13);
+        const run=authoredRun(13);
         let recipeId=recipe.id;
         if(['copper_wire','step_up_transformer'].includes(recipeId))run.learnUtilityRecipe(recipeId);
         else if(!run.knownRecipes.some(r=>r.id===recipeId))recipeId=learnBase(run,recipeId);
@@ -86,7 +85,7 @@ test('all recipes debit exact costs and inventory components in stable ID order'
         assert.deepEqual(run.craftRecipe(recipeId),null,'insufficient repeated craft rejected '+recipe.id);
         assert.deepEqual(JSON.stringify([run.materials,run.inventory.items.map(i=>i.id),run.workshopItems.map(i=>i.id)]),snapshot,'rejected craft is atomic '+recipe.id);
     }
-    const run=new RunState(99);const heavyId=learnBase(run,'heavy_battery');Object.assign(run.materials,{metal:3,electronics:3});
+    const run=authoredRun(99);const heavyId=learnBase(run,'heavy_battery');Object.assign(run.materials,{metal:3,electronics:3});
     assert.ok(!run.previewRecipe(heavyId).canCraft,'craft unavailable outside workshop');
     workshop(run);const before=materialSnapshot(run);
     assert.ok(!run.previewRecipe(heavyId).canCraft,'missing core explained');
@@ -101,7 +100,7 @@ test('all recipes debit exact costs and inventory components in stable ID order'
 });
 
 test('full backpack crafts onto bench and continuation discards leftover output', () => {
-    const run=new RunState(3);workshop(run);
+    const run=authoredRun(3);workshop(run);
     for(const item of [...run.inventory.items])run.inventory.removeItem(item.id);
     for(let y=0;y<4;y++)for(let x=0;x<4;x++)put(run,'power_core');
     assert.deepEqual(run.inventory.grid.flat().filter(Boolean).length,16,'full backpack fixture');
@@ -117,7 +116,7 @@ test('full backpack crafts onto bench and continuation discards leftover output'
 });
 
 test('medkits enforce HP and ownership limits in exploration and workshop', () => {
-    const run=new RunState(7),engine=new ExplorationEngine(run),item=kit(run);
+    const run=authoredRun(7),engine=new ExplorationEngine(run),item=kit(run);
     const before=materialSnapshot(run);
     assert.deepEqual(run.useMedkit(item.id),0,'full HP healing rejected');
     assert.ok(run.inventory.items.includes(item),'full HP retains medkit');
@@ -137,7 +136,7 @@ test('medkits enforce HP and ownership limits in exploration and workshop', () =
 });
 
 test('combat healing replaces attack, charges only armor and needs no weapon', () => {
-    const run=electricLoadout(new RunState(8));run.playerHp=50;const {weapon,armor}=gear(run),medkit=kit(run);
+    const run=electricLoadout(authoredRun(8));run.playerHp=50;const {weapon,armor}=gear(run),medkit=kit(run);
     run.beginEncounter(run.enemies.find(e=>e.kind==='scorpion').id);
     const before={hp:run.combatEngine.enemyHp,world:run.worldTurn,rng:run.rngState,
         high:run.inventory.items.find(i=>i.voltageType==='high'&&i.type==='battery').charge,
@@ -155,7 +154,7 @@ test('combat healing replaces attack, charges only armor and needs no weapon', (
 });
 
 test('aid station caps healing, costs one turn and cannot be reused', () => {
-    const run=new RunState(11);run.loadSector(1);run.enemies=[];
+    const run=authoredRun(11);run.loadSector(1);run.enemies=[];
     const engine=new ExplorationEngine(run),station=run.aidStations[0];run.hero={x:station.x,y:station.y};
     assert.ok(!engine.applyAction({type:'heal-station'}).accepted&&!station.used,'full HP does not consume aid station');
     run.playerHp=83;assert.ok(engine.applyAction({type:'heal-station'}).accepted,'aid station usable');
@@ -165,7 +164,7 @@ test('aid station caps healing, costs one turn and cannot be reused', () => {
 });
 
 test('live boss blocks exit; simultaneous defeat gives no reward or expansion', () => {
-    const run=new RunState(20);run.loadSector(1);const boss=run.enemies.find(e=>e.isBoss);
+    const run=authoredRun(20);run.loadSector(1);const boss=run.enemies.find(e=>e.isBoss);
     assert.deepEqual([boss.name,boss.maxHp,boss.damage,boss.detectionRadius,boss.idlePeriod],['Scrap Brute',66,14,4,3],'boss stats');
     boss.x=6;boss.y=1;run.hero={...run.map.exit};const engine=new ExplorationEngine(run),before=materialSnapshot(run);
     assert.ok(!engine.applyAction({type:'exit'}).accepted,'moved live boss still locks exit');
@@ -178,7 +177,7 @@ test('live boss blocks exit; simultaneous defeat gives no reward or expansion', 
 });
 
 test('healing plans armor alone and preserves charge when armor is unaffordable', () => {
-    const run=new RunState(21);run.inventory.expandTo(6,6);
+    const run=authoredRun(21);run.inventory.expandTo(6,6);
     for(const item of [...run.inventory.items])run.inventory.removeItem(item.id);
     const battery=run.createItem('weak_battery',2),armor=run.createItem('makeshift_vest'),weapon=run.createItem('laser_pistol');
     weapon.requiredVoltage='low';weapon.isSelectedForTurn=true;armor.isSelectedForTurn=true;
@@ -195,11 +194,11 @@ test('healing plans armor alone and preserves charge when armor is unaffordable'
 });
 
 test('healing and aid station apply before monster contact', () => {
-    const run=new RunState(22),engine=new ExplorationEngine(run),rat=run.enemies.find(e=>e.kind==='rat');
+    const run=authoredRun(22),engine=new ExplorationEngine(run),rat=run.enemies.find(e=>e.kind==='rat');
     run.hero={x:0,y:7};Object.assign(rat,{x:0,y:6});run.enemies=[rat];run.playerHp=1;
     const med=kit(run);assert.ok(engine.applyAction({type:'heal',itemId:med.id}).accepted,'exploration healing accepted before contact');
     assert.deepEqual([run.playerHp,run.combatEngine.playerHp,run.worldTurn,run.mode],[26,26,1,'combat'],'heal occurs before AI contact creates encounter');
-    const stationRun=new RunState(23);stationRun.loadSector(1);const station=stationRun.aidStations[0];
+    const stationRun=authoredRun(23);stationRun.loadSector(1);const station=stationRun.aidStations[0];
     stationRun.hero={x:station.x,y:station.y};stationRun.playerHp=1;
     const attacker=stationRun.enemies.find(e=>e.kind==='rat');Object.assign(attacker,{x:station.x,y:station.y-1});stationRun.enemies=[attacker];
     assert.ok(new ExplorationEngine(stationRun).applyAction({type:'heal-station'}).accepted,'station resolves before AI');
@@ -207,7 +206,7 @@ test('healing and aid station apply before monster contact', () => {
 });
 
 test('craft output construction failure is atomic; bench components are unavailable', () => {
-    const run=new RunState(24);const heavyId=learnBase(run,'heavy_battery');workshop(run);Object.assign(run.materials,{metal:2,electronics:1});
+    const run=authoredRun(24);const heavyId=learnBase(run,'heavy_battery');workshop(run);Object.assign(run.materials,{metal:2,electronics:1});
     const snapshot=materialSnapshot(run),items=run.workshopItems.length,create=run.createItem;
     run.createItem=()=>{throw Error('Injected output construction failure')};
     let failed=false;try{run.craftRecipe('weak_battery')}catch{failed=true}
@@ -219,7 +218,7 @@ test('craft output construction failure is atomic; bench components are unavaila
 
 test('both boss encounter initiators preserve reward position and apply expansion once', () => {
     for(const initiator of ['player','enemy']){
-        const run=new RunState(25);run.loadSector(1);const boss=run.enemies.find(e=>e.isBoss);
+        const run=authoredRun(25);run.loadSector(1);const boss=run.enemies.find(e=>e.isBoss);
         const source={x:6,y:0};run.hero={...source};const destination={x:boss.x,y:boss.y};
         run.beginEncounter(boss.id,initiator);run.combatEngine.enemyHp=1;
         const {weapon,armor}=gear(run);run.processCombatTurn(weapon.id,armor.id);

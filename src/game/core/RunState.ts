@@ -9,7 +9,8 @@ import { Item } from './Item';
 import { LootTable } from './LootTable';
 import { reachableDistances } from './GridTraversal';
 import { ExplorationEngine } from './ExplorationEngine';
-import { ENEMY_DEFINITIONS, SECTOR_DEFINITIONS, worldKey } from './SectorDefinitions';
+import { ENEMY_DEFINITIONS, SECTOR_PROFILES, worldKey } from './SectorDefinitions';
+import { generateSector } from './SectorGenerator';
 import type { EnemyKind, WorldPosition } from './SectorDefinitions';
 import { emptyMaterials, MATERIAL_CAPACITY, MATERIAL_NAMES, MATERIAL_TYPES, RECIPES, BASE_RECIPE_IDS } from './Crafting';
 import type { GroundLoot, GroundMaterialLoot, LootSpec, MaterialAmounts, MaterialType, RecipePreview, Recipe } from './Crafting';
@@ -338,7 +339,7 @@ export class RunState {
     public enterWorkshop(): boolean {
         if (this.mode !== 'exploration' || this.activeBlueprintChoice || this.draggedItem || this.exitLocked ||
             this.hero.x !== this.map.exit.x || this.hero.y !== this.map.exit.y) return false;
-        this.nextSectorIndex = this.sectorIndex + 1 < SECTOR_DEFINITIONS.length ? this.sectorIndex + 1 : null;
+        this.nextSectorIndex = this.sectorIndex + 1 < SECTOR_PROFILES.length ? this.sectorIndex + 1 : null;
         this.workshopFinal = this.nextSectorIndex === null;
         this.mode = 'workshop';
         return true;
@@ -402,9 +403,8 @@ export class RunState {
     }
 
     public loadSector(index: number): void {
-        const definition = SECTOR_DEFINITIONS[index];
-        if (!definition) throw new RangeError(`Unknown sector index '${index}'.`);
-        this.blueprintCaches = generateBlueprintCaches(this.seed, index);
+        const definition = generateSector(this.seed, index);
+        this.blueprintCaches = generateBlueprintCaches(this.seed, index, definition.blueprintCaches);
         this.pendingBlueprintCacheId = null;
         this.sectorIndex = index;
         this.worldTurn = 0;
@@ -457,9 +457,9 @@ export class RunState {
         if (definition.boss) {
             this.requiredBossId = addEnemy('brute', this.map.exit.x, this.map.exit.y).id;
         }
-        if (index === 1) this.aidStations.push({
-            id: 'sector-2-first-aid', name: 'First Aid Station', x: 0, y: 4, used: false, healingAmount: 30
-        });
+        this.aidStations = definition.aidStations.map(position => ({
+            id: `sector-${index + 1}-first-aid`, name: 'First Aid Station', ...position, used: false, healingAmount: 30
+        }));
     }
 
     public beginEncounter(enemyId: string, initiator: EncounterInitiator = 'enemy'): void {

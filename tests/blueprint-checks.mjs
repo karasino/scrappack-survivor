@@ -19,7 +19,7 @@ export async function runBlueprintChecks({evaluate,read,check,mouse,click,send,r
         const clip=await read('(()=>{const r=s.game.canvas.getBoundingClientRect();return{x:r.x,y:r.y,width:r.width,height:r.height,scale:1}})()');
         const shot=await send('Page.captureScreenshot',{format:'png',clip});await writeFile(join(directory,`${renderer}-${name}.png`),Buffer.from(shot.data,'base64'));
     };
-    await evaluate('freshRun(123)');await viewport(1366,650);
+    await evaluate('freshAuthoredRun(123)');await viewport(1366,650);
     await check('s.inventory.items.map(i=>[i.definitionId,i.gridX,i.gridY,i.powerMode])',[
         ['dagger',0,0,'none'],['combat_bra',1,0,'none'],['weak_battery',0,1,'none'],['medkit',1,1,'none']], 'physical start positions');
     await check('s.inventory.items.filter(i=>i.type==="weapon"||i.type==="armor").every(i=>i.isSelectedForTurn&&!i.isPowered)',true,'physical equipment selected without connection');
@@ -87,6 +87,6 @@ export async function runBlueprintChecks({evaluate,read,check,mouse,click,send,r
     await check(`s.inventory.items.find(i=>i.id===${JSON.stringify(id)}).isSelectedForTurn`,true,'real click selects Arc Baton after repeated long tooltip layouts');
     await evaluate('s.run.continueFromWorkshop();s.updateCombatUI()');
     await check('[s.run.knownRecipes.length,s.run.blueprintCaches.length]',[5,0],'sector transition retains recipes and discards unchosen offers');
-    await evaluate('freshRun(123)');assert.equal(await read('s.run.knownRecipes.length'),4,'new run resets knowledge');
+    await evaluate('freshAuthoredRun(123)');assert.equal(await read('s.run.knownRecipes.length'),4,'new run resets knowledge');
     console.log(`PASS ${renderer}: blueprints, modal input, four viewports, learn/craft ownership and reset`);
 }
