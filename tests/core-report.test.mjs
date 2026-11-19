@@ -114,6 +114,7 @@ test('test:harness npm command verifies every selected file and rejects a native
     await writeFile(join(directory,'package.json'),JSON.stringify({type:'module',scripts:{'test:harness':command}}));
     await mkdir(join(directory,'scripts'),{recursive:true});
     await copyFile(reporter,join(directory,'scripts/core-report.mjs'));
+    await copyFile(join(root,'scripts/run-harness.mjs'),join(directory,'scripts/run-harness.mjs'));
     for(const [index,file] of files.entries()){
         await mkdir(dirname(join(directory,file)),{recursive:true});
         await writeFile(join(directory,file),`import {test} from 'node:test'; test('harness file ${index}',()=>{});\n`);

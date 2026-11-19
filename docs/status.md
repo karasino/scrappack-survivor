@@ -12,9 +12,11 @@
 
 <!-- active-task: none -->
 
-Активной задачи нет. [Контроль harness-отчёта](tasks/done/2026-11-19-harness-report-guard.md) принят 19.11.2026 по всем трём ручным CLI-проверкам. Полный check прошёл: 101 core, 40 harness и Canvas/WebGL.
+Активной задачи нет. [Общий таймаут harness](tasks/done/2026-11-19-harness-timeout.md) принят 19.11.2026 по всем четырём ручным CLI-проверкам. Полный check прошёл: 101 core, 49 harness и Canvas/WebGL.
 
-[Проверка выполнения core-сценариев](tasks/done/2026-11-19-core-report-guard.md) принята 19.11.2026 по всем трём ручным CLI-проверкам. Полный check прошёл.
+[Контроль harness-отчёта](tasks/done/2026-11-19-harness-report-guard.md) принят 19.11.2026.
+
+[Проверка выполнения core-сценариев](tasks/done/2026-11-19-core-report-guard.md) принята 19.11.2026.
 
 [Процедурные открытые сектора](tasks/done/2026-11-18-procedural-sectors.md) приняты 19.11.2026 по всему ручному чек-листу. Полный check прошёл.
 
